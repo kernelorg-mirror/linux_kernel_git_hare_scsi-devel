@@ -702,7 +702,7 @@ static int aac_eh_abort(struct scsi_cmnd* cmd)
 		       AAC_DRIVERNAME, host->host_no,
 		       sdev_channel(dev), sdev_id(dev), (int)dev->lun);
 
-		fib = &aac->fibs[cmd->request->tag];
+		fib = &aac->fibs[scsi_cmd_to_rq(cmd)->tag];
 		if (*(u8 *)fib->hw_fib_va != 0 &&
 		    (fib->flags & FIB_CONTEXT_FLAG_NATIVE_HBA) &&
 		    (fib->callback_data == cmd))
@@ -769,7 +769,7 @@ static int aac_eh_abort(struct scsi_cmnd* cmd)
 			 * Mark associated FIB to not complete,
 			 * eh handler does this
 			 */
-			fib = &aac->fibs[cmd->request->tag];
+			fib = &aac->fibs[scsi_cmd_to_rq(cmd)->tag];
 			if (fib->hw_fib_va->header.XferState &&
 			    (fib->flags & FIB_CONTEXT_FLAG) &&
 			    (fib->callback_data == cmd)) {
@@ -783,7 +783,7 @@ static int aac_eh_abort(struct scsi_cmnd* cmd)
 			 * Mark associated FIB to not complete,
 			 * eh handler does this
 			 */
-			fib = &aac->fibs[cmd->request->tag];
+			fib = &aac->fibs[scsi_cmd_to_rq(cmd)->tag];
 			if ((fib->hw_fib_va->header.XferState &
 			     cpu_to_le32(Async | NoResponseExpected)) &&
 			    (fib->flags & FIB_CONTEXT_FLAG) &&
@@ -1003,7 +1003,7 @@ static bool aac_eh_bus_reset_iter(struct scsi_cmnd *cmd, void *data,
 {
 	struct Scsi_Host *host = cmd->device->host;
 	struct aac_dev *aac = (struct aac_dev *)host->hostdata;
-	struct fib *fib = &aac->fibs[cmd->request->tag];
+	struct fib *fib = &aac->fibs[scsi_cmd_to_rq(cmd)->tag];
 	int *cmd_bus = data;
 
 	if (fib->hw_fib_va->header.XferState &&
