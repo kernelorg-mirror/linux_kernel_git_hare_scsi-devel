@@ -206,17 +206,22 @@ static unsigned short myrb_exec_cmd(struct myrb_hba *cb,
 static unsigned short myrb_exec_type3(struct myrb_hba *cb,
 		enum myrb_cmd_opcode op, dma_addr_t addr)
 {
-	struct myrb_cmdblk *cmd_blk = &cb->dcmd_blk;
-	union myrb_cmd_mbox *mbox = &cmd_blk->mbox;
+	struct scsi_cmnd *scmd;
+	struct myrb_cmdblk *cmd_blk;
+	union myrb_cmd_mbox *mbox;
 	unsigned short status;
 
-	mutex_lock(&cb->dcmd_mutex);
+	scmd = scsi_get_internal_cmd(cb->host->shost_sdev, DMA_TO_DEVICE, false);
+	if (!scmd)
+		return MYRB_STATUS_DEVICE_BUSY;
+	cmd_blk = scsi_cmd_priv(scmd);
 	myrb_reset_cmd(cmd_blk);
-	mbox->type3.id = MYRB_DCMD_TAG;
+	mbox = &cmd_blk->mbox;
+	mbox->type3.id = MYRB_CMD_TAG(scmd);
 	mbox->type3.opcode = op;
 	mbox->type3.addr = addr;
 	status = myrb_exec_cmd(cb, cmd_blk);
-	mutex_unlock(&cb->dcmd_mutex);
+	scsi_put_internal_cmd(scmd);
 	return status;
 }
 
@@ -229,8 +234,9 @@ static unsigned short myrb_exec_type3D(struct myrb_hba *cb,
 		enum myrb_cmd_opcode op, struct scsi_device *sdev,
 		struct myrb_pdev_state *pdev_info)
 {
-	struct myrb_cmdblk *cmd_blk = &cb->dcmd_blk;
-	union myrb_cmd_mbox *mbox = &cmd_blk->mbox;
+	struct scsi_cmnd *scmd;
+	struct myrb_cmdblk *cmd_blk;
+	union myrb_cmd_mbox *mbox;
 	unsigned short status;
 	dma_addr_t pdev_info_addr;
 
@@ -240,21 +246,29 @@ static unsigned short myrb_exec_type3D(struct myrb_hba *cb,
 	if (dma_mapping_error(&cb->pdev->dev, pdev_info_addr))
 		return MYRB_STATUS_SUBSYS_FAILED;
 
-	mutex_lock(&cb->dcmd_mutex);
+	scmd = scsi_get_internal_cmd(sdev, DMA_FROM_DEVICE, false);
+	if (!scmd) {
+		dma_unmap_single(&cb->pdev->dev, pdev_info_addr,
+				 sizeof(struct myrb_pdev_state),
+				 DMA_FROM_DEVICE);
+		return MYRB_STATUS_DEVICE_BUSY;
+	}
+	cmd_blk = scsi_cmd_priv(scmd);
 	myrb_reset_cmd(cmd_blk);
-	mbox->type3D.id = MYRB_DCMD_TAG;
+	mbox = &cmd_blk->mbox;
+	mbox->type3D.id = MYRB_CMD_TAG(scmd);
 	mbox->type3D.opcode = op;
 	mbox->type3D.channel = sdev->channel;
 	mbox->type3D.target = sdev->id;
 	mbox->type3D.addr = pdev_info_addr;
 	status = myrb_exec_cmd(cb, cmd_blk);
-	mutex_unlock(&cb->dcmd_mutex);
 	dma_unmap_single(&cb->pdev->dev, pdev_info_addr,
 			 sizeof(struct myrb_pdev_state), DMA_FROM_DEVICE);
 	if (status == MYRB_STATUS_SUCCESS &&
 	    mbox->type3D.opcode == MYRB_CMD_GET_DEVICE_STATE_OLD)
 		myrb_translate_devstate(pdev_info);
 
+	scsi_put_internal_cmd(scmd);
 	return status;
 }
 
@@ -283,8 +297,9 @@ static char *myrb_event_msg[] = {
  */
 static void myrb_get_event(struct myrb_hba *cb, unsigned int event)
 {
-	struct myrb_cmdblk *cmd_blk = &cb->mcmd_blk;
-	union myrb_cmd_mbox *mbox = &cmd_blk->mbox;
+	struct scsi_cmnd *scmd;
+	struct myrb_cmdblk *cmd_blk;
+	union myrb_cmd_mbox *mbox;
 	struct myrb_log_entry *ev_buf;
 	dma_addr_t ev_addr;
 	unsigned short status;
@@ -295,8 +310,15 @@ static void myrb_get_event(struct myrb_hba *cb, unsigned int event)
 	if (!ev_buf)
 		return;
 
+	scmd = scsi_get_internal_cmd(cb->host->shost_sdev,
+				     DMA_FROM_DEVICE, false);
+	if (!scmd)
+		goto out_free;
+
+	cmd_blk = scsi_cmd_priv(scmd);
 	myrb_reset_cmd(cmd_blk);
-	mbox->type3E.id = MYRB_MCMD_TAG;
+	mbox = &cmd_blk->mbox;
+	mbox->type3E.id = MYRB_CMD_TAG(scmd);
 	mbox->type3E.opcode = MYRB_CMD_EVENT_LOG_OPERATION;
 	mbox->type3E.optype = DAC960_V1_GetEventLogEntry;
 	mbox->type3E.opqual = 1;
@@ -327,7 +349,8 @@ static void myrb_get_event(struct myrb_hba *cb, unsigned int event)
 				     ev_buf->channel, ev_buf->target,
 				     sshdr.sense_key, sshdr.asc, sshdr.ascq);
 	}
-
+	scsi_put_internal_cmd(scmd);
+out_free:
 	dma_free_coherent(&cb->pdev->dev, sizeof(struct myrb_log_entry),
 			  ev_buf, ev_addr);
 }
@@ -339,15 +362,21 @@ static void myrb_get_event(struct myrb_hba *cb, unsigned int event)
  */
 static void myrb_get_errtable(struct myrb_hba *cb)
 {
-	struct myrb_cmdblk *cmd_blk = &cb->mcmd_blk;
-	union myrb_cmd_mbox *mbox = &cmd_blk->mbox;
+	struct scsi_cmnd *scmd;
+	struct myrb_cmdblk *cmd_blk;
+	union myrb_cmd_mbox *mbox;
 	unsigned short status;
 	struct myrb_error_entry old_table[MYRB_MAX_CHANNELS * MYRB_MAX_TARGETS];
 
 	memcpy(&old_table, cb->err_table, sizeof(old_table));
 
+	scmd = scsi_get_internal_cmd(cb->host->shost_sdev, DMA_FROM_DEVICE, false);
+	if (!scmd)
+		return;
+	cmd_blk = scsi_cmd_priv(scmd);
 	myrb_reset_cmd(cmd_blk);
-	mbox->type3.id = MYRB_MCMD_TAG;
+	mbox = &cmd_blk->mbox;
+	mbox->type3.id = MYRB_CMD_TAG(scmd);
 	mbox->type3.opcode = MYRB_CMD_GET_ERROR_TABLE;
 	mbox->type3.addr = cb->err_table_addr;
 	status = myrb_exec_cmd(cb, cmd_blk);
@@ -375,6 +404,7 @@ static void myrb_get_errtable(struct myrb_hba *cb)
 				    new->hard_err, new->misc_err);
 		}
 	}
+	scsi_put_internal_cmd(scmd);
 }
 
 /*
@@ -438,8 +468,9 @@ static unsigned short myrb_get_ldev_info(struct myrb_hba *cb)
 static unsigned short myrb_get_rbld_progress(struct myrb_hba *cb,
 		struct myrb_rbld_progress *rbld)
 {
-	struct myrb_cmdblk *cmd_blk = &cb->mcmd_blk;
-	union myrb_cmd_mbox *mbox = &cmd_blk->mbox;
+	struct scsi_cmnd *scmd;
+	struct myrb_cmdblk *cmd_blk;
+	union myrb_cmd_mbox *mbox;
 	struct myrb_rbld_progress *rbld_buf;
 	dma_addr_t rbld_addr;
 	unsigned short status;
@@ -450,13 +481,24 @@ static unsigned short myrb_get_rbld_progress(struct myrb_hba *cb,
 	if (!rbld_buf)
 		return MYRB_STATUS_RBLD_NOT_CHECKED;
 
+	scmd = scsi_get_internal_cmd(cb->host->shost_sdev,
+				     DMA_FROM_DEVICE, false);
+	if (!scmd) {
+		status = MYRB_STATUS_DEVICE_BUSY;
+		goto out_free;
+	}
+	cmd_blk = scsi_cmd_priv(scmd);
 	myrb_reset_cmd(cmd_blk);
-	mbox->type3.id = MYRB_MCMD_TAG;
+	mbox = &cmd_blk->mbox;
+	mbox->type3.id = MYRB_CMD_TAG(scmd);
 	mbox->type3.opcode = MYRB_CMD_GET_REBUILD_PROGRESS;
 	mbox->type3.addr = rbld_addr;
 	status = myrb_exec_cmd(cb, cmd_blk);
 	if (rbld)
 		memcpy(rbld, rbld_buf, sizeof(struct myrb_rbld_progress));
+
+	scsi_put_internal_cmd(scmd);
+out_free:
 	dma_free_coherent(&cb->pdev->dev, sizeof(struct myrb_rbld_progress),
 			  rbld_buf, rbld_addr);
 	return status;
@@ -530,8 +572,9 @@ static void myrb_update_rbld_progress(struct myrb_hba *cb)
  */
 static void myrb_get_cc_progress(struct myrb_hba *cb)
 {
-	struct myrb_cmdblk *cmd_blk = &cb->mcmd_blk;
-	union myrb_cmd_mbox *mbox = &cmd_blk->mbox;
+	struct scsi_cmnd *scmd;
+	struct myrb_cmdblk *cmd_blk;
+	union myrb_cmd_mbox *mbox;
 	struct myrb_rbld_progress *rbld_buf;
 	dma_addr_t rbld_addr;
 	unsigned short status;
@@ -543,8 +586,15 @@ static void myrb_get_cc_progress(struct myrb_hba *cb)
 		cb->need_cc_status = true;
 		return;
 	}
+	scmd = scsi_get_internal_cmd(cb->host->shost_sdev,
+				     DMA_FROM_DEVICE, false);
+	if (!scmd)
+		goto out_free;
+
+	cmd_blk = scsi_cmd_priv(scmd);
 	myrb_reset_cmd(cmd_blk);
-	mbox->type3.id = MYRB_MCMD_TAG;
+	mbox = &cmd_blk->mbox;
+	mbox->type3.id = MYRB_CMD_TAG(scmd);
 	mbox->type3.opcode = MYRB_CMD_REBUILD_STAT;
 	mbox->type3.addr = rbld_addr;
 	status = myrb_exec_cmd(cb, cmd_blk);
@@ -566,6 +616,8 @@ static void myrb_get_cc_progress(struct myrb_hba *cb)
 			scsi_device_put(sdev);
 		}
 	}
+	scsi_put_internal_cmd(scmd);
+out_free:
 	dma_free_coherent(&cb->pdev->dev, sizeof(struct myrb_rbld_progress),
 			  rbld_buf, rbld_addr);
 }
@@ -577,8 +629,9 @@ static void myrb_get_cc_progress(struct myrb_hba *cb)
  */
 static void myrb_bgi_control(struct myrb_hba *cb)
 {
-	struct myrb_cmdblk *cmd_blk = &cb->mcmd_blk;
-	union myrb_cmd_mbox *mbox = &cmd_blk->mbox;
+	struct scsi_cmnd *scmd;
+	struct myrb_cmdblk *cmd_blk;
+	union myrb_cmd_mbox *mbox;
 	struct myrb_bgi_status *bgi, *last_bgi;
 	dma_addr_t bgi_addr;
 	struct scsi_device *sdev = NULL;
@@ -591,8 +644,13 @@ static void myrb_bgi_control(struct myrb_hba *cb)
 			     "Failed to allocate bgi memory\n");
 		return;
 	}
+	scmd = scsi_get_internal_cmd(cb->host->shost_sdev, DMA_FROM_DEVICE, true);
+	if (!scmd)
+		goto out_free;
+	cmd_blk = scsi_cmd_priv(scmd);
 	myrb_reset_cmd(cmd_blk);
-	mbox->type3B.id = MYRB_DCMD_TAG;
+	mbox = &cmd_blk->mbox;
+	mbox->type3B.id = MYRB_CMD_TAG(scmd);
 	mbox->type3B.opcode = MYRB_CMD_BGI_CONTROL;
 	mbox->type3B.optype = 0x20;
 	mbox->type3B.addr = bgi_addr;
@@ -655,6 +713,8 @@ static void myrb_bgi_control(struct myrb_hba *cb)
 	}
 	if (sdev)
 		scsi_device_put(sdev);
+	scsi_put_internal_cmd(scmd);
+out_free:
 	dma_free_coherent(&cb->pdev->dev, sizeof(struct myrb_bgi_status),
 			  bgi, bgi_addr);
 }
@@ -779,18 +839,23 @@ static unsigned short myrb_hba_enquiry(struct myrb_hba *cb)
 static unsigned short myrb_set_pdev_state(struct myrb_hba *cb,
 		struct scsi_device *sdev, enum myrb_devstate state)
 {
-	struct myrb_cmdblk *cmd_blk = &cb->dcmd_blk;
-	union myrb_cmd_mbox *mbox = &cmd_blk->mbox;
+	struct scsi_cmnd *scmd;
+	struct myrb_cmdblk *cmd_blk;
+	union myrb_cmd_mbox *mbox;
 	unsigned short status;
 
-	mutex_lock(&cb->dcmd_mutex);
+	scmd = scsi_get_internal_cmd(sdev, DMA_NONE, true);
+	if (!scmd)
+		return MYRB_STATUS_DEVICE_BUSY;
+	cmd_blk = scsi_cmd_priv(scmd);
+	mbox = &cmd_blk->mbox;
 	mbox->type3D.opcode = MYRB_CMD_START_DEVICE;
-	mbox->type3D.id = MYRB_DCMD_TAG;
+	mbox->type3D.id = MYRB_CMD_TAG(scmd);
 	mbox->type3D.channel = sdev->channel;
 	mbox->type3D.target = sdev->id;
 	mbox->type3D.state = state & 0x1F;
 	status = myrb_exec_cmd(cb, cmd_blk);
-	mutex_unlock(&cb->dcmd_mutex);
+	scsi_put_internal_cmd(scmd);
 
 	return status;
 }
@@ -1094,7 +1159,8 @@ static int myrb_get_hba_config(struct myrb_hba *cb)
 		cb->bus_width = 8;
 	cb->ldev_block_size = enquiry2->ldev_block_size;
 	shost->max_channel = pchan_cur;
-	shost->max_id = enquiry2->max_targets;
+	if (enquiry2->max_targets < shost->max_id)
+		shost->max_id = enquiry2->max_targets;
 	memsize = enquiry2->mem_size >> 20;
 	cb->safte_enabled = (enquiry2->fault_mgmt == MYRB_FAULT_SAFTE);
 	/*
@@ -1114,6 +1180,7 @@ static int myrb_get_hba_config(struct myrb_hba *cb)
 
 	if (shost->can_queue > MYRB_CMD_MBOX_COUNT - 2)
 		shost->can_queue = MYRB_CMD_MBOX_COUNT - 2;
+	shost->nr_reserved_cmds = 3;
 	shost->max_sectors = enquiry2->max_sectors;
 	shost->sg_tablesize = enquiry2->max_sge;
 	if (shost->sg_tablesize > MYRB_SCATTER_GATHER_LIMIT)
@@ -1287,7 +1354,7 @@ static int myrb_pthru_queuecommand(struct Scsi_Host *shost,
 	}
 
 	mbox->type3.opcode = MYRB_CMD_DCDB;
-	mbox->type3.id = rq->tag + 3;
+	mbox->type3.id = rq->tag;
 	mbox->type3.addr = dcdb_addr;
 	dcdb->channel = sdev->channel;
 	dcdb->target = sdev->id;
@@ -1551,7 +1618,7 @@ static int myrb_ldev_queuecommand(struct Scsi_Host *shost,
 	}
 
 	myrb_reset_cmd(cmd_blk);
-	mbox->type5.id = scsi_cmd_to_rq(scmd)->tag + 3;
+	mbox->type5.id = MYRB_CMD_TAG(scmd);
 	if (scmd->sc_data_direction == DMA_NONE)
 		goto submit;
 	nsge = scsi_dma_map(scmd);
@@ -1920,6 +1987,7 @@ static ssize_t rebuild_store(struct device *dev,
 {
 	struct scsi_device *sdev = to_scsi_device(dev);
 	struct myrb_hba *cb = shost_priv(sdev->host);
+	struct scsi_cmnd *scmd;
 	struct myrb_cmdblk *cmd_blk;
 	union myrb_cmd_mbox *mbox;
 	unsigned short status;
@@ -1940,16 +2008,20 @@ static ssize_t rebuild_store(struct device *dev,
 				    "Rebuild Not Initiated; already in progress\n");
 			return -EALREADY;
 		}
-		mutex_lock(&cb->dcmd_mutex);
-		cmd_blk = &cb->dcmd_blk;
+		scmd = scsi_get_internal_cmd(sdev, DMA_NONE, false);
+		if (!scmd) {
+			sdev_printk(KERN_INFO, sdev,
+				    "Rebuild Not Initiated; no reserved commands\n");
+			return -EBUSY;
+		}
+		cmd_blk = scsi_cmd_priv(scmd);
 		myrb_reset_cmd(cmd_blk);
 		mbox = &cmd_blk->mbox;
 		mbox->type3D.opcode = MYRB_CMD_REBUILD_ASYNC;
-		mbox->type3D.id = MYRB_DCMD_TAG;
+		mbox->type3D.id = MYRB_CMD_TAG(scmd);
 		mbox->type3D.channel = sdev->channel;
 		mbox->type3D.target = sdev->id;
 		status = myrb_exec_cmd(cb, cmd_blk);
-		mutex_unlock(&cb->dcmd_mutex);
 	} else {
 		struct pci_dev *pdev = cb->pdev;
 		unsigned char *rate;
@@ -1961,34 +2033,41 @@ static ssize_t rebuild_store(struct device *dev,
 			return 0;
 		}
 
+		scmd = scsi_get_internal_cmd(sdev, DMA_TO_DEVICE, false);
+		if (!scmd) {
+			sdev_printk(KERN_INFO, sdev,
+				    "Cancellation of Rebuild Failed - No requests\n");
+			return -EBUSY;
+		}
 		rate = dma_alloc_coherent(&pdev->dev, sizeof(char),
 					  &rate_addr, GFP_KERNEL);
 		if (rate == NULL) {
 			sdev_printk(KERN_INFO, sdev,
 				    "Cancellation of Rebuild Failed - Out of Memory\n");
+			scsi_put_internal_cmd(scmd);
 			return -ENOMEM;
 		}
-		mutex_lock(&cb->dcmd_mutex);
-		cmd_blk = &cb->dcmd_blk;
+		cmd_blk = scsi_cmd_priv(scmd);
 		myrb_reset_cmd(cmd_blk);
 		mbox = &cmd_blk->mbox;
 		mbox->type3R.opcode = MYRB_CMD_REBUILD_CONTROL;
-		mbox->type3R.id = MYRB_DCMD_TAG;
+		mbox->type3R.id = MYRB_CMD_TAG(scmd);
 		mbox->type3R.rbld_rate = 0xFF;
 		mbox->type3R.addr = rate_addr;
 		status = myrb_exec_cmd(cb, cmd_blk);
 		dma_free_coherent(&pdev->dev, sizeof(char), rate, rate_addr);
-		mutex_unlock(&cb->dcmd_mutex);
 	}
 	if (status == MYRB_STATUS_SUCCESS) {
 		sdev_printk(KERN_INFO, sdev, "Rebuild %s\n",
 			    start ? "Initiated" : "Cancelled");
+		scsi_put_internal_cmd(scmd);
 		return count;
 	}
 	if (!start) {
 		sdev_printk(KERN_INFO, sdev,
 			    "Rebuild Not Cancelled, status 0x%x\n",
 			    status);
+		scsi_put_internal_cmd(scmd);
 		return -EIO;
 	}
 
@@ -2016,6 +2095,7 @@ static ssize_t rebuild_store(struct device *dev,
 		sdev_printk(KERN_INFO, sdev,
 			    "Rebuild Failed, status 0x%x\n", status);
 
+	scsi_put_internal_cmd(scmd);
 	return -EIO;
 }
 static DEVICE_ATTR_RW(rebuild);
@@ -2026,6 +2106,7 @@ static ssize_t consistency_check_store(struct device *dev,
 	struct scsi_device *sdev = to_scsi_device(dev);
 	struct myrb_hba *cb = shost_priv(sdev->host);
 	struct myrb_rbld_progress rbld_buf;
+	struct scsi_cmnd *scmd;
 	struct myrb_cmdblk *cmd_blk;
 	union myrb_cmd_mbox *mbox;
 	unsigned short ldev_num = 0xFFFF;
@@ -2047,17 +2128,22 @@ static ssize_t consistency_check_store(struct device *dev,
 				    "Check Consistency Not Initiated; already in progress\n");
 			return -EALREADY;
 		}
-		mutex_lock(&cb->dcmd_mutex);
-		cmd_blk = &cb->dcmd_blk;
+		scmd = scsi_get_internal_cmd(sdev, DMA_NONE, false);
+		if (!scmd) {
+			sdev_printk(KERN_INFO, sdev,
+				    "Check Consistency Not Initiated; device busy\n");
+			return -EBUSY;
+		}
+		cmd_blk = scsi_cmd_priv(scmd);
 		myrb_reset_cmd(cmd_blk);
 		mbox = &cmd_blk->mbox;
 		mbox->type3C.opcode = MYRB_CMD_CHECK_CONSISTENCY_ASYNC;
-		mbox->type3C.id = MYRB_DCMD_TAG;
+		mbox->type3C.id = MYRB_CMD_TAG(scmd);
 		mbox->type3C.ldev_num = sdev->id;
 		mbox->type3C.auto_restore = true;
 
 		status = myrb_exec_cmd(cb, cmd_blk);
-		mutex_unlock(&cb->dcmd_mutex);
+		scsi_put_internal_cmd(scmd);
 	} else {
 		struct pci_dev *pdev = cb->pdev;
 		unsigned char *rate;
@@ -2075,17 +2161,23 @@ static ssize_t consistency_check_store(struct device *dev,
 				    "Cancellation of Check Consistency Failed - Out of Memory\n");
 			return -ENOMEM;
 		}
-		mutex_lock(&cb->dcmd_mutex);
-		cmd_blk = &cb->dcmd_blk;
+		scmd = scsi_get_internal_cmd(sdev, DMA_TO_DEVICE, false);
+		if (!scmd) {
+			sdev_printk(KERN_INFO, sdev,
+				    "Check Consistency Not Initiated; device busy\n");
+			dma_free_coherent(&pdev->dev, sizeof(char), rate, rate_addr);
+			return -EBUSY;
+		}
+		cmd_blk = scsi_cmd_priv(scmd);;
 		myrb_reset_cmd(cmd_blk);
 		mbox = &cmd_blk->mbox;
 		mbox->type3R.opcode = MYRB_CMD_REBUILD_CONTROL;
-		mbox->type3R.id = MYRB_DCMD_TAG;
+		mbox->type3R.id = MYRB_CMD_TAG(scmd);
 		mbox->type3R.rbld_rate = 0xFF;
 		mbox->type3R.addr = rate_addr;
 		status = myrb_exec_cmd(cb, cmd_blk);
 		dma_free_coherent(&pdev->dev, sizeof(char), rate, rate_addr);
-		mutex_unlock(&cb->dcmd_mutex);
+		scsi_put_internal_cmd(scmd);
 	}
 	if (status == MYRB_STATUS_SUCCESS) {
 		sdev_printk(KERN_INFO, sdev, "Check Consistency %s\n",
@@ -2216,6 +2308,7 @@ static struct scsi_host_template myrb_template = {
 	.shost_groups		= myrb_shost_groups,
 	.sdev_groups		= myrb_sdev_groups,
 	.this_id		= -1,
+	.alloc_host_sdev	= 1,
 };
 
 /**
@@ -2306,6 +2399,11 @@ static void myrb_handle_scsi(struct myrb_hba *cb, struct myrb_cmdblk *cmd_blk,
 	if (!cmd_blk)
 		return;
 
+	if (cmd_blk->completion) {
+		complete(cmd_blk->completion);
+		cmd_blk->completion = NULL;
+		return;
+	}
 	scsi_dma_unmap(scmd);
 
 	if (cmd_blk->dcdb) {
@@ -2366,17 +2464,6 @@ static void myrb_handle_scsi(struct myrb_hba *cb, struct myrb_cmdblk *cmd_blk,
 		break;
 	}
 	scsi_done(scmd);
-}
-
-static void myrb_handle_cmdblk(struct myrb_hba *cb, struct myrb_cmdblk *cmd_blk)
-{
-	if (!cmd_blk)
-		return;
-
-	if (cmd_blk->completion) {
-		complete(cmd_blk->completion);
-		cmd_blk->completion = NULL;
-	}
 }
 
 static void myrb_monitor(struct work_struct *work)
@@ -2720,15 +2807,10 @@ static irqreturn_t DAC960_LA_intr_handler(int irq, void *arg)
 		struct scsi_cmnd *scmd = NULL;
 		struct myrb_cmdblk *cmd_blk = NULL;
 
-		if (id == MYRB_DCMD_TAG)
-			cmd_blk = &cb->dcmd_blk;
-		else if (id == MYRB_MCMD_TAG)
-			cmd_blk = &cb->mcmd_blk;
-		else {
-			scmd = scsi_host_find_tag(cb->host, id - 3);
-			if (scmd)
-				cmd_blk = scsi_cmd_priv(scmd);
-		}
+		scmd = scsi_host_find_tag(cb->host, id - 1);
+		if (scmd)
+			cmd_blk = scsi_cmd_priv(scmd);
+
 		if (cmd_blk)
 			cmd_blk->status = next_stat_mbox->status;
 		else
@@ -2739,12 +2821,8 @@ static irqreturn_t DAC960_LA_intr_handler(int irq, void *arg)
 		if (++next_stat_mbox > cb->last_stat_mbox)
 			next_stat_mbox = cb->first_stat_mbox;
 
-		if (cmd_blk) {
-			if (id < 3)
-				myrb_handle_cmdblk(cb, cmd_blk);
-			else
-				myrb_handle_scsi(cb, cmd_blk, scmd);
-		}
+		if (cmd_blk)
+			myrb_handle_scsi(cb, cmd_blk, scmd);
 	}
 	cb->next_stat_mbox = next_stat_mbox;
 	spin_unlock_irqrestore(&cb->queue_lock, flags);
@@ -2968,15 +3046,9 @@ static irqreturn_t DAC960_PG_intr_handler(int irq, void *arg)
 		struct scsi_cmnd *scmd = NULL;
 		struct myrb_cmdblk *cmd_blk = NULL;
 
-		if (id == MYRB_DCMD_TAG)
-			cmd_blk = &cb->dcmd_blk;
-		else if (id == MYRB_MCMD_TAG)
-			cmd_blk = &cb->mcmd_blk;
-		else {
-			scmd = scsi_host_find_tag(cb->host, id - 3);
-			if (scmd)
-				cmd_blk = scsi_cmd_priv(scmd);
-		}
+		scmd = scsi_host_find_tag(cb->host, id - 1);
+		if (scmd)
+			cmd_blk = scsi_cmd_priv(scmd);
 		if (cmd_blk)
 			cmd_blk->status = next_stat_mbox->status;
 		else
@@ -2987,10 +3059,7 @@ static irqreturn_t DAC960_PG_intr_handler(int irq, void *arg)
 		if (++next_stat_mbox > cb->last_stat_mbox)
 			next_stat_mbox = cb->first_stat_mbox;
 
-		if (id < 3)
-			myrb_handle_cmdblk(cb, cmd_blk);
-		else
-			myrb_handle_scsi(cb, cmd_blk, scmd);
+		myrb_handle_scsi(cb, cmd_blk, scmd);
 	}
 	cb->next_stat_mbox = next_stat_mbox;
 	spin_unlock_irqrestore(&cb->queue_lock, flags);
@@ -3161,15 +3230,9 @@ static irqreturn_t DAC960_PD_intr_handler(int irq, void *arg)
 		struct scsi_cmnd *scmd = NULL;
 		struct myrb_cmdblk *cmd_blk = NULL;
 
-		if (id == MYRB_DCMD_TAG)
-			cmd_blk = &cb->dcmd_blk;
-		else if (id == MYRB_MCMD_TAG)
-			cmd_blk = &cb->mcmd_blk;
-		else {
-			scmd = scsi_host_find_tag(cb->host, id - 3);
-			if (scmd)
-				cmd_blk = scsi_cmd_priv(scmd);
-		}
+		scmd = scsi_host_find_tag(cb->host, id - 1);
+		if (scmd)
+			cmd_blk = scsi_cmd_priv(scmd);
 		if (cmd_blk)
 			cmd_blk->status = DAC960_PD_read_status(base);
 		else
@@ -3179,10 +3242,7 @@ static irqreturn_t DAC960_PD_intr_handler(int irq, void *arg)
 		DAC960_PD_ack_intr(base);
 		DAC960_PD_ack_hw_mbox_status(base);
 
-		if (id < 3)
-			myrb_handle_cmdblk(cb, cmd_blk);
-		else
-			myrb_handle_scsi(cb, cmd_blk, scmd);
+		myrb_handle_scsi(cb, cmd_blk, scmd);
 	}
 	spin_unlock_irqrestore(&cb->queue_lock, flags);
 	return IRQ_HANDLED;
@@ -3330,20 +3390,13 @@ static irqreturn_t DAC960_P_intr_handler(int irq, void *arg)
 		enum myrb_cmd_opcode op;
 
 
-		if (id == MYRB_DCMD_TAG)
-			cmd_blk = &cb->dcmd_blk;
-		else if (id == MYRB_MCMD_TAG)
-			cmd_blk = &cb->mcmd_blk;
-		else {
-			scmd = scsi_host_find_tag(cb->host, id - 3);
-			if (scmd)
-				cmd_blk = scsi_cmd_priv(scmd);
-		}
-		if (cmd_blk)
-			cmd_blk->status = DAC960_PD_read_status(base);
-		else
+		scmd = scsi_host_find_tag(cb->host, id - 1);
+		if (!scmd) {
 			dev_err(&cb->pdev->dev,
 				"Unhandled command completion %d\n", id);
+			continue;
+		}
+		cmd_blk = scsi_cmd_priv(scmd);
 
 		DAC960_PD_ack_intr(base);
 		DAC960_PD_ack_hw_mbox_status(base);
@@ -3377,10 +3430,7 @@ static irqreturn_t DAC960_P_intr_handler(int irq, void *arg)
 		default:
 			break;
 		}
-		if (id < 3)
-			myrb_handle_cmdblk(cb, cmd_blk);
-		else
-			myrb_handle_scsi(cb, cmd_blk, scmd);
+		myrb_handle_scsi(cb, cmd_blk, scmd);
 	}
 	spin_unlock_irqrestore(&cb->queue_lock, flags);
 	return IRQ_HANDLED;
@@ -3409,8 +3459,8 @@ static struct myrb_hba *myrb_detect(struct pci_dev *pdev,
 	}
 	shost->max_cmd_len = 12;
 	shost->max_lun = 256;
+	shost->max_id = 16;
 	cb = shost_priv(shost);
-	mutex_init(&cb->dcmd_mutex);
 	mutex_init(&cb->dma_mutex);
 	cb->pdev = pdev;
 

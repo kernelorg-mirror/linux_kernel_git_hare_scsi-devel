@@ -24,8 +24,7 @@
 #define MYRB_BLKSIZE_BITS		9
 #define MYRB_MAILBOX_TIMEOUT		1000000
 
-#define MYRB_DCMD_TAG			1
-#define MYRB_MCMD_TAG			2
+#define MYRB_CMD_TAG(scmd) scsi_cmd_to_rq(scmd)->tag + 1
 
 #define MYRB_PRIMARY_MONITOR_INTERVAL (10 * HZ)
 #define MYRB_SECONDARY_MONITOR_INTERVAL (60 * HZ)
@@ -752,10 +751,6 @@ struct myrb_hba {
 	struct myrb_stat_mbox *first_stat_mbox;
 	struct myrb_stat_mbox *last_stat_mbox;
 	struct myrb_stat_mbox *next_stat_mbox;
-
-	struct myrb_cmdblk dcmd_blk;
-	struct myrb_cmdblk mcmd_blk;
-	struct mutex dcmd_mutex;
 
 	struct myrb_enquiry *enquiry;
 	dma_addr_t enquiry_addr;
