@@ -9,6 +9,7 @@
 #include <scsi/scsi.h>
 #include <linux/atomic.h>
 #include <linux/sbitmap.h>
+#include <linux/dma-direction.h>
 
 struct bsg_device;
 struct device;
@@ -448,10 +449,10 @@ extern int scsi_is_sdev_device(const struct device *);
 extern int scsi_is_target_device(const struct device *);
 extern void scsi_sanitize_inquiry_string(unsigned char *s, int len);
 extern int __scsi_execute(struct scsi_device *sdev, const unsigned char *cmd,
-			int data_direction, void *buffer, unsigned bufflen,
-			unsigned char *sense, struct scsi_sense_hdr *sshdr,
-			int timeout, int retries, u64 flags,
-			req_flags_t rq_flags, int *resid);
+			enum dma_data_direction data_direction, void *buffer,
+			unsigned bufflen, unsigned char *sense,
+			struct scsi_sense_hdr *sshdr, int timeout, int retries,
+			u64 flags, req_flags_t rq_flags, int *resid);
 /* Make sure any sense buffer is the correct size. */
 #define scsi_execute(sdev, cmd, data_direction, buffer, bufflen, sense,	\
 		     sshdr, timeout, retries, flags, rq_flags, resid)	\
@@ -463,15 +464,15 @@ extern int __scsi_execute(struct scsi_device *sdev, const unsigned char *cmd,
 		       resid);						\
 })
 static inline int scsi_execute_req(struct scsi_device *sdev,
-	const unsigned char *cmd, int data_direction, void *buffer,
-	unsigned bufflen, struct scsi_sense_hdr *sshdr, int timeout,
-	int retries, int *resid)
+	const unsigned char *cmd, enum dma_data_direction data_direction,
+	void *buffer, unsigned bufflen, struct scsi_sense_hdr *sshdr,
+	int timeout, int retries, int *resid)
 {
 	return scsi_execute(sdev, cmd, data_direction, buffer,
 		bufflen, NULL, sshdr, timeout, retries,  0, 0, resid);
 }
 struct scsi_cmnd *scsi_get_internal_cmd(struct scsi_device *sdev,
-	int data_direction, bool nowait);
+	enum dma_data_direction data_direction, bool nowait);
 void scsi_put_internal_cmd(struct scsi_cmnd *scmd);
 extern void sdev_disable_disk_events(struct scsi_device *sdev);
 extern void sdev_enable_disk_events(struct scsi_device *sdev);

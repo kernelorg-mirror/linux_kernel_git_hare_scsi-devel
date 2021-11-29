@@ -207,7 +207,7 @@ void scsi_queue_insert(struct scsi_cmnd *cmd, int reason)
  * Linux error code if we didn't get that far.
  */
 int __scsi_execute(struct scsi_device *sdev, const unsigned char *cmd,
-		 int data_direction, void *buffer, unsigned bufflen,
+		 enum dma_data_direction data_direction, void *buffer, unsigned bufflen,
 		 unsigned char *sense, struct scsi_sense_hdr *sshdr,
 		 int timeout, int retries, u64 flags, req_flags_t rq_flags,
 		 int *resid)
@@ -1971,7 +1971,7 @@ void scsi_mq_destroy_tags(struct Scsi_Host *shost)
  * otherwise the normal tag pool will be used.
  */
 struct scsi_cmnd *scsi_get_internal_cmd(struct scsi_device *sdev,
-	int data_direction, bool nowait)
+	enum dma_data_direction data_direction, bool nowait)
 {
 	struct request *rq;
 	struct scsi_cmnd *scmd;
