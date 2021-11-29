@@ -1951,7 +1951,7 @@ void scsi_forget_host(struct Scsi_Host *shost)
 }
 
 /**
- * scsi_get_host_dev - Create a virtual scsi_device to the host adapter
+ * scsi_get_host_dev - Create a virtual scsi_device for the host adapter
  * @shost: Host that needs a scsi_device
  *
  * Lock status: None assumed.
@@ -1959,7 +1959,7 @@ void scsi_forget_host(struct Scsi_Host *shost)
  * Returns:     The scsi_device or NULL
  *
  * Notes:
- *	Attach a single scsi_device to the Scsi_Host. The primary aim
+ *	Attach a scsi_device for the Scsi_Host. The primary aim
  *	for this device is to serve as a container from which valid
  *	scsi commands can be allocated from. Each scsi command will carry
  *	an unused/free command tag, which then can be used by the LLDD to
@@ -1975,7 +1975,7 @@ struct scsi_device *scsi_get_host_dev(struct Scsi_Host *shost)
 	if (!scsi_host_scan_allowed(shost))
 		goto out;
 	starget = scsi_alloc_target(&shost->shost_gendev, 0,
-				    shost->max_id);
+				    shost->this_id);
 	if (!starget)
 		goto out;
 
