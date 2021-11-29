@@ -1976,13 +1976,13 @@ struct scsi_cmnd *scsi_get_internal_cmd(struct scsi_device *sdev,
 	struct request *rq;
 	struct scsi_cmnd *scmd;
 	blk_mq_req_flags_t flags = 0;
-	int op;
+	unsigned int op;
 
 	if (sdev->host->nr_reserved_cmds)
 		flags |= BLK_MQ_REQ_RESERVED;
 	if (nowait)
 		flags |= BLK_MQ_REQ_NOWAIT;
-	op = (data_direction == DMA_TO_DEVICE) ?
+	op = data_direction == DMA_TO_DEVICE ?
 		REQ_OP_DRV_OUT : REQ_OP_DRV_IN;
 	rq = blk_mq_alloc_request(sdev->request_queue, op, flags);
 	if (IS_ERR(rq))
