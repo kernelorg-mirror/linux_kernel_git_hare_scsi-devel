@@ -1470,7 +1470,7 @@ static bool aac_close_sync_fib_iter(struct scsi_cmnd *command, void *data,
 {
 	struct Scsi_Host *host = command->device->host;
 	struct aac_dev *aac = (struct aac_dev *)host->hostdata;
-	struct fib *fib = &aac->fibs[command->request->tag];
+	struct fib *fib = &aac->fibs[scsi_cmd_to_rq(command)->tag];
 	int *retval = data;
 	__le32 XferState = fib->hw_fib_va->header.XferState;
 	bool is_response_expected = false;
