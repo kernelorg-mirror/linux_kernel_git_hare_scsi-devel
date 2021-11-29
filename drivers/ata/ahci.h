@@ -41,14 +41,13 @@ enum {
 	AHCI_MAX_CLKS		= 5,
 	AHCI_MAX_SG		= 168, /* hardware max is 64K */
 	AHCI_DMA_BOUNDARY	= 0xffffffff,
-	AHCI_MAX_CMDS		= 32,
 	AHCI_CMD_SZ		= 32,
-	AHCI_CMD_SLOT_SZ	= AHCI_MAX_CMDS * AHCI_CMD_SZ,
+	AHCI_CMD_SLOT_SZ	= ATA_MAX_QUEUE * AHCI_CMD_SZ,
 	AHCI_RX_FIS_SZ		= 256,
 	AHCI_CMD_TBL_CDB	= 0x40,
 	AHCI_CMD_TBL_HDR_SZ	= 0x80,
 	AHCI_CMD_TBL_SZ		= AHCI_CMD_TBL_HDR_SZ + (AHCI_MAX_SG * 16),
-	AHCI_CMD_TBL_AR_SZ	= AHCI_CMD_TBL_SZ * AHCI_MAX_CMDS,
+	AHCI_CMD_TBL_AR_SZ	= AHCI_CMD_TBL_SZ * ATA_MAX_QUEUE,
 	AHCI_PORT_PRIV_DMA_SZ	= AHCI_CMD_SLOT_SZ + AHCI_CMD_TBL_AR_SZ +
 				  AHCI_RX_FIS_SZ,
 	AHCI_PORT_PRIV_FBS_DMA_SZ	= AHCI_CMD_SLOT_SZ +
@@ -385,7 +384,7 @@ extern const struct attribute_group *ahci_sdev_groups[];
  */
 #define AHCI_SHT(drv_name)						\
 	__ATA_BASE_SHT(drv_name),					\
-	.can_queue		= AHCI_MAX_CMDS,			\
+	.can_queue		= ATA_MAX_QUEUE,			\
 	.sg_tablesize		= AHCI_MAX_SG,				\
 	.dma_boundary		= AHCI_DMA_BOUNDARY,			\
 	.shost_groups		= ahci_shost_groups,			\
