@@ -1560,14 +1560,9 @@ extern void ata_port_pbar_desc(struct ata_port *ap, int bar, ssize_t offset,
 			       const char *name);
 #endif
 
-static inline bool ata_tag_internal(unsigned int tag)
-{
-	return tag == ATA_TAG_INTERNAL;
-}
-
 static inline bool ata_tag_valid(unsigned int tag)
 {
-	return tag < ATA_MAX_QUEUE || ata_tag_internal(tag);
+	return tag < ATA_MAX_QUEUE || tag == ATA_TAG_INTERNAL;
 }
 
 static inline int ata_qc_get_tag(struct ata_queued_cmd *qc)
