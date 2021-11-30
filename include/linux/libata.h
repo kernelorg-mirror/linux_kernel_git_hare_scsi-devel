@@ -19,6 +19,7 @@
 #include <linux/ata.h>
 #include <linux/workqueue.h>
 #include <scsi/scsi_host.h>
+#include <scsi/scsi_cmnd.h>
 #include <linux/acpi.h>
 #include <linux/cdrom.h>
 #include <linux/sched.h>
@@ -632,7 +633,6 @@ struct ata_queued_cmd {
 	u8			cdb[ATAPI_CDB_LEN];
 
 	unsigned long		flags;		/* ATA_QCFLAG_xxx */
-	unsigned int		tag;		/* libata core tag */
 	unsigned int		hw_tag;		/* driver tag */
 	unsigned int		n_elem;
 	unsigned int		orig_n_elem;
@@ -1568,6 +1568,13 @@ static inline bool ata_tag_internal(unsigned int tag)
 static inline bool ata_tag_valid(unsigned int tag)
 {
 	return tag < ATA_MAX_QUEUE || ata_tag_internal(tag);
+}
+
+static inline int ata_qc_get_tag(struct ata_queued_cmd *qc)
+{
+	if (qc->scsicmd)
+		return scsi_cmd_to_rq(qc->scsicmd)->tag;
+	return ATA_TAG_INTERNAL;
 }
 
 #define __ata_qc_for_each(ap, qc, tag, max_tag, fn)		\

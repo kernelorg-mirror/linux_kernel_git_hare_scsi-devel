@@ -1521,7 +1521,6 @@ unsigned ata_exec_internal_sg(struct ata_device *dev,
 	/* initialize internal qc */
 	qc = __ata_qc_from_tag(ap, ATA_TAG_INTERNAL);
 
-	qc->tag = ATA_TAG_INTERNAL;
 	qc->hw_tag = 0;
 	qc->scsicmd = NULL;
 	qc->ap = ap;
@@ -4618,16 +4617,12 @@ void swap_buf_le16(u16 *buf, unsigned int buf_words)
 void ata_qc_free(struct ata_queued_cmd *qc)
 {
 	struct ata_port *ap;
-	unsigned int tag;
 
 	WARN_ON_ONCE(qc == NULL); /* ata_qc_from_tag _might_ return NULL */
 	ap = qc->ap;
 
 	qc->flags = 0;
-	tag = qc->tag;
-	if (ata_tag_valid(tag)) {
-		qc->tag = ATA_TAG_POISON;
-	}
+	qc->scsicmd = NULL;
 }
 
 void __ata_qc_complete(struct ata_queued_cmd *qc)
@@ -4663,7 +4658,7 @@ void __ata_qc_complete(struct ata_queued_cmd *qc)
 	 * is called. (when rc != 0 and atapi request sense is needed)
 	 */
 	qc->flags &= ~ATA_QCFLAG_ACTIVE;
-	ap->qc_active &= ~(1ULL << qc->tag);
+	ap->qc_active &= ~(1ULL << ata_qc_get_tag(qc));
 
 	/* call completion callback */
 	qc->complete_fn(qc);
@@ -4736,7 +4731,7 @@ void ata_qc_complete(struct ata_queued_cmd *qc)
 		 * Finish internal commands without any further processing
 		 * and always with the result TF filled.
 		 */
-		if (unlikely(ata_tag_internal(qc->tag))) {
+		if (unlikely(ata_tag_internal(ata_qc_get_tag(qc)))) {
 			fill_result_tf(qc);
 			trace_ata_qc_complete_internal(qc);
 			__ata_qc_complete(qc);
@@ -4859,11 +4854,11 @@ void ata_qc_issue(struct ata_queued_cmd *qc)
 		WARN_ON_ONCE(link->sactive);
 
 		ap->nr_active_links++;
-		link->active_tag = qc->tag;
+		link->active_tag = ata_qc_get_tag(qc);
 	}
 
 	qc->flags |= ATA_QCFLAG_ACTIVE;
-	ap->qc_active |= 1ULL << qc->tag;
+	ap->qc_active |= 1ULL << ata_qc_get_tag(qc);
 
 	/*
 	 * We guarantee to LLDs that they will have at least one

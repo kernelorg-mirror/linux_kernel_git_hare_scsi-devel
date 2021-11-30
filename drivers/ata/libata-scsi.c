@@ -636,7 +636,7 @@ static struct ata_queued_cmd *ata_qc_new_init(struct ata_device *dev, struct scs
 		return NULL;
 
 	qc = __ata_qc_from_tag(ap, tag);
-	qc->tag = qc->hw_tag = tag;
+	qc->hw_tag = tag;
 	qc->scsicmd = cmd;
 	qc->scsidone = scsi_done;
 	qc->ap = ap;

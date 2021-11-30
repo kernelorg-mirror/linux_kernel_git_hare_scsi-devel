@@ -951,14 +951,11 @@ static void ata_hsm_qc_complete(struct ata_queued_cmd *qc, int in_wq)
 			/* EH might have kicked in while host lock is
 			 * released.
 			 */
-			qc = ata_qc_from_tag(ap, qc->tag);
-			if (qc) {
-				if (likely(!(qc->err_mask & AC_ERR_HSM))) {
-					ata_sff_irq_on(ap);
-					ata_qc_complete(qc);
-				} else
-					ata_port_freeze(ap);
-			}
+			if (likely(!(qc->err_mask & AC_ERR_HSM))) {
+				ata_sff_irq_on(ap);
+				ata_qc_complete(qc);
+			} else
+				ata_port_freeze(ap);
 		} else {
 			if (likely(!(qc->err_mask & AC_ERR_HSM)))
 				ata_qc_complete(qc);

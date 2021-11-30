@@ -1164,7 +1164,6 @@ static void __ata_eh_qc_complete(struct ata_queued_cmd *qc)
 	spin_lock_irqsave(ap->lock, flags);
 	qc->scsidone = ata_eh_scsidone;
 	__ata_qc_complete(qc);
-	WARN_ON(ata_tag_valid(qc->tag));
 	spin_unlock_irqrestore(ap->lock, flags);
 
 	scsi_eh_finish_cmd(scmd, &ap->eh_done_q);
@@ -2370,7 +2369,7 @@ static void ata_eh_link_report(struct ata_link *link)
 			cmd->lbal, cmd->lbam, cmd->lbah,
 			cmd->hob_feature, cmd->hob_nsect,
 			cmd->hob_lbal, cmd->hob_lbam, cmd->hob_lbah,
-			cmd->device, qc->tag, data_buf, cdb_buf,
+			cmd->device, ata_qc_get_tag(qc), data_buf, cdb_buf,
 			res->command, res->feature, res->nsect,
 			res->lbal, res->lbam, res->lbah,
 			res->hob_feature, res->hob_nsect,
