@@ -617,6 +617,34 @@ int ata_scsi_ioctl(struct scsi_device *scsidev, unsigned int cmd,
 EXPORT_SYMBOL_GPL(ata_scsi_ioctl);
 
 /**
+ *	ata_qc_internal_init - Request an internal ATA command, and initialize it
+ *	@dev: Device from whom we request an internal command structure
+ *
+ *	LOCKING:
+ *	None.
+ */
+
+struct ata_queued_cmd *ata_qc_internal_init(struct ata_device *dev)
+{
+	struct ata_port *ap = dev->link->ap;
+	struct ata_queued_cmd *qc;
+
+	qc = __ata_qc_from_tag(ap, ATA_TAG_INTERNAL);
+
+	qc->hw_tag = 0;
+	qc->scsicmd = NULL;
+	qc->scsidone = NULL;
+	qc->ap = ap;
+	qc->dev = dev;
+	qc->flags = ATA_QCFLAG_INTERNAL;
+
+	ata_qc_reinit(qc);
+
+	return qc;
+}
+EXPORT_SYMBOL_GPL(ata_qc_internal_init);
+
+/**
  *	ata_qc_new_init - Request an available ATA command, and initialize it
  *	@dev: Device from whom we request an available command structure
  *	@cmd: scsi command from which to initialiaze the ATA command

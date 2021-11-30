@@ -1519,13 +1519,11 @@ unsigned ata_exec_internal_sg(struct ata_device *dev,
 	}
 
 	/* initialize internal qc */
-	qc = __ata_qc_from_tag(ap, ATA_TAG_INTERNAL);
-
-	qc->hw_tag = 0;
-	qc->scsicmd = NULL;
-	qc->ap = ap;
-	qc->dev = dev;
-	ata_qc_reinit(qc);
+	qc = ata_qc_internal_init(dev);
+	if (!qc) {
+		spin_unlock_irqrestore(ap->lock, flags);
+		return AC_ERR_SYSTEM;
+	}
 
 	preempted_tag = link->active_tag;
 	preempted_sactive = link->sactive;
@@ -4731,7 +4729,7 @@ void ata_qc_complete(struct ata_queued_cmd *qc)
 		 * Finish internal commands without any further processing
 		 * and always with the result TF filled.
 		 */
-		if (unlikely(ata_tag_internal(ata_qc_get_tag(qc)))) {
+		if (unlikely(qc->flags & ATA_QCFLAG_INTERNAL)) {
 			fill_result_tf(qc);
 			trace_ata_qc_complete_internal(qc);
 			__ata_qc_complete(qc);
