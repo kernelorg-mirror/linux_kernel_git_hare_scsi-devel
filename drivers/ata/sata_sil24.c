@@ -452,13 +452,6 @@ static const struct ata_port_info sil24_port_info[] = {
 	},
 };
 
-static int sil24_tag(int tag)
-{
-	if (unlikely(ata_tag_internal(tag)))
-		return 0;
-	return tag;
-}
-
 static unsigned long sil24_port_offset(struct ata_port *ap)
 {
 	return ap->port_no * PORT_REGS_SIZE;
@@ -485,7 +478,7 @@ static void sil24_read_tf(struct ata_port *ap, int tag, struct ata_taskfile *tf)
 	struct sil24_prb __iomem *prb;
 	u8 fis[6 * 4];
 
-	prb = port + PORT_LRAM + sil24_tag(tag) * PORT_LRAM_SLOT_SZ;
+	prb = port + PORT_LRAM + tag * PORT_LRAM_SLOT_SZ;
 	memcpy_fromio(fis, prb->fis, sizeof(fis));
 	ata_tf_from_fis(fis, tf);
 }
@@ -842,7 +835,7 @@ static enum ata_completion_errors sil24_qc_prep(struct ata_queued_cmd *qc)
 	struct sil24_sge *sge;
 	u16 ctrl = 0;
 
-	cb = &pp->cmd_block[sil24_tag(qc->hw_tag)];
+	cb = &pp->cmd_block[qc->hw_tag];
 
 	if (!ata_is_atapi(qc->tf.protocol)) {
 		prb = &cb->ata.prb;
@@ -886,7 +879,7 @@ static unsigned int sil24_qc_issue(struct ata_queued_cmd *qc)
 	struct ata_port *ap = qc->ap;
 	struct sil24_port_priv *pp = ap->private_data;
 	void __iomem *port = sil24_port_base(ap);
-	unsigned int tag = sil24_tag(qc->hw_tag);
+	unsigned int tag = qc->hw_tag;
 	dma_addr_t paddr;
 	void __iomem *activate;
 
