@@ -635,13 +635,6 @@ static struct ata_queued_cmd *ata_qc_new_init(struct ata_device *dev, struct scs
 	if (unlikely(ap->pflags & ATA_PFLAG_FROZEN))
 		return NULL;
 
-	/* libsas case */
-	if (ap->flags & ATA_FLAG_SAS_HOST) {
-		tag = ata_sas_allocate_tag(ap);
-		if (tag < 0)
-			return NULL;
-	}
-
 	qc = __ata_qc_from_tag(ap, tag);
 	qc->tag = qc->hw_tag = tag;
 	qc->scsicmd = cmd;
