@@ -617,6 +617,44 @@ int ata_scsi_ioctl(struct scsi_device *scsidev, unsigned int cmd,
 EXPORT_SYMBOL_GPL(ata_scsi_ioctl);
 
 /**
+ *	ata_qc_new_init - Request an available ATA command, and initialize it
+ *	@dev: Device from whom we request an available command structure
+ *	@cmd: scsi command from which to initialiaze the ATA command
+ *
+ *	LOCKING:
+ *	None.
+ */
+
+static struct ata_queued_cmd *ata_qc_new_init(struct ata_device *dev, struct scsi_cmnd *cmd)
+{
+	struct ata_port *ap = dev->link->ap;
+	struct ata_queued_cmd *qc;
+	int tag = scsi_cmd_to_rq(cmd)->tag;
+
+	/* no command while frozen */
+	if (unlikely(ap->pflags & ATA_PFLAG_FROZEN))
+		return NULL;
+
+	/* libsas case */
+	if (ap->flags & ATA_FLAG_SAS_HOST) {
+		tag = ata_sas_allocate_tag(ap);
+		if (tag < 0)
+			return NULL;
+	}
+
+	qc = __ata_qc_from_tag(ap, tag);
+	qc->tag = qc->hw_tag = tag;
+	qc->scsicmd = cmd;
+	qc->scsidone = scsi_done;
+	qc->ap = ap;
+	qc->dev = dev;
+
+	ata_qc_reinit(qc);
+
+	return qc;
+}
+
+/**
  *	ata_scsi_qc_new - acquire new ata_queued_cmd reference
  *	@dev: ATA device to which the new command is attached
  *	@cmd: SCSI command that originated this ATA command
@@ -640,11 +678,8 @@ static struct ata_queued_cmd *ata_scsi_qc_new(struct ata_device *dev,
 {
 	struct ata_queued_cmd *qc;
 
-	qc = ata_qc_new_init(dev, scsi_cmd_to_rq(cmd)->tag);
+	qc = ata_qc_new_init(dev, cmd);
 	if (qc) {
-		qc->scsicmd = cmd;
-		qc->scsidone = scsi_done;
-
 		qc->sg = scsi_sglist(cmd);
 		qc->n_elem = scsi_sg_count(cmd);
 
