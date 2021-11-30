@@ -500,8 +500,7 @@ static void scsi_device_dev_release_usercontext(struct work_struct *work)
 		kfree_rcu(vpd_pg80, rcu);
 	if (vpd_pg89)
 		kfree_rcu(vpd_pg89, rcu);
-	if (!scsi_device_is_host_dev(sdev))
-		kfree(sdev->inquiry);
+	kfree(sdev->inquiry);
 	kfree(sdev);
 
 	if (parent)
