@@ -609,7 +609,12 @@ enum {
 	 * or shared hwqs instead of 'mq-deadline'.
 	 */
 	BLK_MQ_F_NO_SCHED_BY_DEFAULT	= 1 << 7,
-	BLK_MQ_F_ALLOC_POLICY_START_BIT = 8,
+	/*
+	 * Reverse the order of tag allocation and allocate reserved
+	 * tags at the top of the bitmap.
+	 */
+	BLK_MQ_F_TAG_REVERSE_ORDER	= 1 << 8,
+	BLK_MQ_F_ALLOC_POLICY_START_BIT = 9,
 	BLK_MQ_F_ALLOC_POLICY_BITS = 1,
 
 	BLK_MQ_S_STOPPED	= 0,
@@ -675,7 +680,9 @@ struct request *blk_mq_alloc_request_hctx(struct request_queue *q,
  */
 struct blk_mq_tags {
 	unsigned int nr_tags;
+	unsigned int tags_offset;
 	unsigned int nr_reserved_tags;
+	unsigned int reserved_tags_offset;
 
 	atomic_t active_queues;
 

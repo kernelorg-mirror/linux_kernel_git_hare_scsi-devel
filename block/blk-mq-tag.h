@@ -6,7 +6,7 @@ struct blk_mq_alloc_data;
 
 extern struct blk_mq_tags *blk_mq_init_tags(unsigned int nr_tags,
 					unsigned int reserved_tags,
-					int node, int alloc_policy);
+					int node, int flags);
 extern void blk_mq_free_tags(struct blk_mq_tags *tags);
 extern int blk_mq_init_bitmaps(struct sbitmap_queue *bitmap_tags,
 			       struct sbitmap_queue *breserved_tags,

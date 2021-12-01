@@ -93,11 +93,11 @@ unsigned long blk_mq_get_tags(struct blk_mq_alloc_data *data, int nr_tags,
 	struct sbitmap_queue *bt = &tags->bitmap_tags;
 	unsigned long ret;
 
-	if (data->shallow_depth ||data->flags & BLK_MQ_REQ_RESERVED ||
+	if (data->shallow_depth || data->flags & BLK_MQ_REQ_RESERVED ||
 	    data->hctx->flags & BLK_MQ_F_TAG_QUEUE_SHARED)
 		return 0;
 	ret = __sbitmap_queue_get_batch(bt, nr_tags, offset);
-	*offset += tags->nr_reserved_tags;
+	*offset += tags->tags_offset;
 	return ret;
 }
 
@@ -116,10 +116,10 @@ unsigned int blk_mq_get_tag(struct blk_mq_alloc_data *data)
 			return BLK_MQ_NO_TAG;
 		}
 		bt = &tags->breserved_tags;
-		tag_offset = 0;
+		tag_offset = tags->reserved_tags_offset;
 	} else {
 		bt = &tags->bitmap_tags;
-		tag_offset = tags->nr_reserved_tags;
+		tag_offset = tags->tags_offset;
 	}
 
 	tag = __blk_mq_get_tag(data, bt);
@@ -197,13 +197,15 @@ void blk_mq_put_tag(struct blk_mq_tags *tags, struct blk_mq_ctx *ctx,
 		    unsigned int tag)
 {
 	if (!blk_mq_tag_is_reserved(tags, tag)) {
-		const int real_tag = tag - tags->nr_reserved_tags;
+		const int real_tag = tag - tags->tags_offset;
 
 		BUG_ON(real_tag >= tags->nr_tags);
 		sbitmap_queue_clear(&tags->bitmap_tags, real_tag, ctx->cpu);
 	} else {
-		BUG_ON(tag >= tags->nr_reserved_tags);
-		sbitmap_queue_clear(&tags->breserved_tags, tag, ctx->cpu);
+		const int real_tag = tag - tags->reserved_tags_offset;
+
+		BUG_ON(real_tag >= tags->nr_reserved_tags);
+		sbitmap_queue_clear(&tags->breserved_tags, real_tag, ctx->cpu);
 	}
 }
 
@@ -243,8 +245,10 @@ static bool bt_iter(struct sbitmap *bitmap, unsigned int bitnr, void *data)
 	struct request *rq;
 	bool ret = true;
 
-	if (!reserved)
-		bitnr += tags->nr_reserved_tags;
+	if (reserved)
+		bitnr += tags->reserved_tags_offset;
+	else
+		bitnr += tags->tags_offset;
 	/*
 	 * We can hit rq == NULL here, because the tagging functions
 	 * test and set the bit before assigning ->rqs[].
@@ -306,8 +310,10 @@ static bool bt_tags_iter(struct sbitmap *bitmap, unsigned int bitnr, void *data)
 	bool ret = true;
 	bool iter_static_rqs = !!(iter_data->flags & BT_TAG_ITER_STATIC_RQS);
 
-	if (!reserved)
-		bitnr += tags->nr_reserved_tags;
+	if (reserved)
+		bitnr += tags->reserved_tags_offset;
+	else
+		bitnr += tags->tags_offset;
 
 	/*
 	 * We can hit rq == NULL here, because the tagging functions
@@ -517,9 +523,10 @@ free_bitmap_tags:
 
 struct blk_mq_tags *blk_mq_init_tags(unsigned int total_tags,
 				     unsigned int reserved_tags,
-				     int node, int alloc_policy)
+				     int node, int flags)
 {
 	struct blk_mq_tags *tags;
+	int alloc_policy = BLK_MQ_FLAG_TO_ALLOC_POLICY(flags);
 
 	if (total_tags > BLK_MQ_TAG_MAX) {
 		pr_err("blk-mq: tag depth too large\n");
@@ -531,7 +538,15 @@ struct blk_mq_tags *blk_mq_init_tags(unsigned int total_tags,
 		return NULL;
 
 	tags->nr_tags = total_tags;
+	if (flags & BLK_MQ_F_TAG_REVERSE_ORDER)
+		tags->tags_offset = 0;
+	else
+		tags->tags_offset = reserved_tags;
 	tags->nr_reserved_tags = reserved_tags;
+	if (flags & BLK_MQ_F_TAG_REVERSE_ORDER)
+		tags->reserved_tags_offset = total_tags;
+	else
+		tags->tags_offset = 0;
 	spin_lock_init(&tags->lock);
 
 	if (blk_mq_init_bitmaps(&tags->bitmap_tags, &tags->breserved_tags,
@@ -558,6 +573,12 @@ int blk_mq_tag_update_depth(struct blk_mq_hw_ctx *hctx,
 
 	if (tdepth <= tags->nr_reserved_tags)
 		return -EINVAL;
+
+	/*
+	 * Tags in reversed order cannot grow
+	 */
+	if (tags->reserved_tags_offset)
+		can_grow = false;
 
 	/*
 	 * If we are allowed to grow beyond the original size, allocate

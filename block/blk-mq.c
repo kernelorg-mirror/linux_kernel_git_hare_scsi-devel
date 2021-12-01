@@ -1366,17 +1366,18 @@ struct request *blk_mq_dequeue_from_ctx(struct blk_mq_hw_ctx *hctx,
 static bool __blk_mq_alloc_driver_tag(struct request *rq)
 {
 	struct sbitmap_queue *bt = &rq->mq_hctx->tags->bitmap_tags;
-	unsigned int tag_offset = rq->mq_hctx->tags->nr_reserved_tags;
+	unsigned int tag_offset;
 	int tag;
 
 	blk_mq_tag_busy(rq->mq_hctx);
 
 	if (blk_mq_tag_is_reserved(rq->mq_hctx->sched_tags, rq->internal_tag)) {
 		bt = &rq->mq_hctx->tags->breserved_tags;
-		tag_offset = 0;
+		tag_offset = rq->mq_hctx->tags->reserved_tags_offset;;
 	} else {
 		if (!hctx_may_queue(rq->mq_hctx, bt))
 			return false;
+		tag_offset = rq->mq_hctx->tags->tags_offset;
 	}
 
 	tag = __sbitmap_queue_get(bt);
@@ -2816,8 +2817,7 @@ static struct blk_mq_tags *blk_mq_alloc_rq_map(struct blk_mq_tag_set *set,
 	if (node == NUMA_NO_NODE)
 		node = set->numa_node;
 
-	tags = blk_mq_init_tags(nr_tags, reserved_tags, node,
-				BLK_MQ_FLAG_TO_ALLOC_POLICY(set->flags));
+	tags = blk_mq_init_tags(nr_tags, reserved_tags, node, set->flags);
 	if (!tags)
 		return NULL;
 
