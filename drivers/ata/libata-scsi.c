@@ -627,9 +627,14 @@ EXPORT_SYMBOL_GPL(ata_scsi_ioctl);
 struct ata_queued_cmd *ata_qc_internal_init(struct ata_device *dev)
 {
 	struct ata_port *ap = dev->link->ap;
+	struct scsi_cmnd *cmd;
 	struct ata_queued_cmd *qc;
 
-	qc = __ata_qc_from_tag(ap, ATA_TAG_INTERNAL);
+	cmd = scsi_get_internal_cmd(dev->sdev, DMA_NONE, false);
+	if (!cmd)
+		return NULL;
+
+	qc = __ata_qc_from_tag(ap, scsi_cmd_to_rq(cmd)->tag);
 
 	qc->hw_tag = 0;
 	qc->scsicmd = NULL;

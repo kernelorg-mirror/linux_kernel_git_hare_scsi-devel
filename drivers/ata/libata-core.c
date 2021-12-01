@@ -4615,12 +4615,17 @@ void swap_buf_le16(u16 *buf, unsigned int buf_words)
 void ata_qc_free(struct ata_queued_cmd *qc)
 {
 	struct ata_port *ap;
+	struct scsi_cmnd *cmd =
+		qc->flags & ATA_QCFLAG_INTERNAL ? qc->scsicmd : NULL;
 
 	WARN_ON_ONCE(qc == NULL); /* ata_qc_from_tag _might_ return NULL */
 	ap = qc->ap;
 
 	qc->flags = 0;
 	qc->scsicmd = NULL;
+	if (cmd)
+		scsi_put_internal_cmd(cmd);
+
 }
 
 void __ata_qc_complete(struct ata_queued_cmd *qc)
@@ -4810,6 +4815,8 @@ u64 ata_qc_get_active(struct ata_port *ap)
 
 	/* ATA_TAG_INTERNAL is sent to hw as tag 0 */
 	if (qc_active & (1ULL << ATA_TAG_INTERNAL)) {
+		/* One of these "that shouldn't have happened" thingies */
+		WARN_ON(qc_active & (1 << 0));
 		qc_active |= (1 << 0);
 		qc_active &= ~(1ULL << ATA_TAG_INTERNAL);
 	}

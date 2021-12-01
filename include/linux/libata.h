@@ -1423,6 +1423,8 @@ extern const struct attribute_group *ata_common_sdev_groups[];
 	.proc_name		= drv_name,			\
 	.slave_destroy		= ata_scsi_slave_destroy,	\
 	.bios_param		= ata_std_bios_param,		\
+	.tag_reverse_order	= 1,				\
+	.nr_reserved_cmds	= 1,				\
 	.unlock_native_capacity	= ata_scsi_unlock_native_capacity
 
 #define ATA_SUBBASE_SHT(drv_name)				\
@@ -1570,7 +1572,7 @@ static inline int ata_qc_get_tag(struct ata_queued_cmd *qc)
 {
 	if (qc->scsicmd)
 		return scsi_cmd_to_rq(qc->scsicmd)->tag;
-	return ATA_TAG_INTERNAL;
+	return ATA_TAG_POISON;
 }
 
 #define __ata_qc_for_each(ap, qc, tag, max_tag, fn)		\
@@ -1771,6 +1773,7 @@ static inline struct ata_queued_cmd *ata_qc_from_tag(struct ata_port *ap,
 	if (unlikely(!qc) || !ap->ops->error_handler)
 		return qc;
 
+	WARN_ON((qc->flags & ATA_QCFLAG_INTERNAL) && tag != ATA_TAG_INTERNAL);
 	if ((qc->flags & (ATA_QCFLAG_ACTIVE |
 			  ATA_QCFLAG_FAILED)) == ATA_QCFLAG_ACTIVE)
 		return qc;
