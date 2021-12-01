@@ -471,6 +471,9 @@ struct scsi_host_template {
 	/* True if a host sdev should be allocated */
 	unsigned alloc_host_sdev:1;
 
+	/* True if tags should be allocated in reverse order */
+	unsigned tag_reverse_order:1;
+
 	/*
 	 * Countdown for host blocking with no commands outstanding.
 	 */
