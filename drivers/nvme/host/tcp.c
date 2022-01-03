@@ -1902,6 +1902,9 @@ static int nvme_tcp_alloc_admin_queue(struct nvme_ctrl *ctrl)
 			break;
 	}
 	if (ret) {
+		/* Abort if TLS is requested */
+		if (num_keys && ctrl->opts->tls)
+			goto out_free_queue;
 		/* Try without TLS */
 		ret = nvme_tcp_alloc_queue(ctrl, 0, 0);
 		if (ret)
@@ -1934,6 +1937,8 @@ static int __nvme_tcp_alloc_io_queues(struct nvme_ctrl *ctrl)
 				break;
 		}
 		if (ret) {
+			if (num_keys && ctrl->opts->tls)
+				goto out_free_queues;
 			ret = nvme_tcp_alloc_queue(ctrl, i, 0);
 			if (ret)
 				goto out_free_queues;
@@ -2844,7 +2849,7 @@ static struct nvmf_transport_ops nvme_tcp_transport = {
 			  NVMF_OPT_HOST_TRADDR | NVMF_OPT_CTRL_LOSS_TMO |
 			  NVMF_OPT_HDR_DIGEST | NVMF_OPT_DATA_DIGEST |
 			  NVMF_OPT_NR_WRITE_QUEUES | NVMF_OPT_NR_POLL_QUEUES |
-			  NVMF_OPT_TOS | NVMF_OPT_HOST_IFACE,
+			  NVMF_OPT_TOS | NVMF_OPT_HOST_IFACE | NVMF_OPT_TLS,
 	.create_ctrl	= nvme_tcp_create_ctrl,
 };
 
