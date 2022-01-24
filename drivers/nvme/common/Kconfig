@@ -2,3 +2,12 @@
 
 config NVME_COMMON
        tristate
+
+config NVME_TLS
+	bool "NVMe/TCP TLS encryption support"
+	depends on NVME_COMMON
+	select KEYS
+	help
+	  Enables TLS encryption for NVMe/TCP using the netlink handshake API.
+
+	  If unsure, say N.

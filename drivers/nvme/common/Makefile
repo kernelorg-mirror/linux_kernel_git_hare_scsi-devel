@@ -5,3 +5,4 @@ ccflags-y			+= -I$(src)
 obj-$(CONFIG_NVME_COMMON)	+= nvme-common.o
 
 nvme-common-y			+= auth.o
+nvme-common-$(CONFIG_NVME_TLS)	+= keyring.o

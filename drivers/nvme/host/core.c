@@ -25,6 +25,9 @@
 #include "nvme.h"
 #include "fabrics.h"
 #include <linux/nvme-auth.h>
+#ifdef CONFIG_NVME_TLS
+#include <linux/nvme-keyring.h>
+#endif
 
 #define CREATE_TRACE_POINTS
 #include "trace.h"
@@ -3954,7 +3957,6 @@ static umode_t nvme_dev_attrs_are_visible(struct kobject *kobj,
 	if (a == &dev_attr_dhchap_ctrl_secret.attr && !ctrl->opts)
 		return 0;
 #endif
-
 	return a->mode;
 }
 
@@ -5414,13 +5416,21 @@ static int __init nvme_core_init(void)
 		result = PTR_ERR(nvme_ns_chr_class);
 		goto unregister_generic_ns;
 	}
-
-	result = nvme_init_auth();
+#ifdef CONFIG_NVME_TLS
+	result = nvme_keyring_init();
 	if (result)
 		goto destroy_ns_chr;
+#endif
+	result = nvme_init_auth();
+	if (result)
+		goto keyring_exit;
 	return 0;
 
+keyring_exit:
+#ifdef CONFIG_NVME_TLS
+	nvme_keyring_exit();
 destroy_ns_chr:
+#endif
 	class_destroy(nvme_ns_chr_class);
 unregister_generic_ns:
 	unregister_chrdev_region(nvme_ns_chr_devt, NVME_MINORS);
@@ -5443,6 +5453,9 @@ out:
 static void __exit nvme_core_exit(void)
 {
 	nvme_exit_auth();
+#ifdef CONFIG_NVME_TLS
+	nvme_keyring_exit();
+#endif
 	class_destroy(nvme_ns_chr_class);
 	class_destroy(nvme_subsys_class);
 	class_destroy(nvme_class);
