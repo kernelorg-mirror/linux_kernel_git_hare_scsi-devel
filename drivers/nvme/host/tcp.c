@@ -936,12 +936,14 @@ static void nvme_tcp_data_ready(struct sock *sk)
 
 	trace_sk_data_ready(sk);
 
-	read_lock_bh(&sk->sk_callback_lock);
-	queue = sk->sk_user_data;
+	rcu_read_lock_bh();
+	queue = rcu_dereference_sk_user_data(sk);
+	if (queue->data_ready)
+		queue->data_ready(sk);
 	if (likely(queue && queue->rd_enabled) &&
 	    !test_bit(NVME_TCP_Q_POLLING, &queue->flags))
 		queue_work_on(queue->io_cpu, nvme_tcp_wq, &queue->io_work);
-	read_unlock_bh(&sk->sk_callback_lock);
+	rcu_read_unlock_bh();
 }
 
 static void nvme_tcp_write_space(struct sock *sk)
