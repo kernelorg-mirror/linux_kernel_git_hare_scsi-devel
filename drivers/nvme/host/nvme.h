@@ -347,7 +347,9 @@ struct nvme_ctrl {
 	struct nvme_dhchap_key *ctrl_key;
 	u16 transaction;
 #endif
-
+#ifdef CONFIG_NVME_TLS
+	struct key *tls_key;
+#endif
 	/* Power saving configuration */
 	u64 ps_max_latency_us;
 	bool apst_enabled;
