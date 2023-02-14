@@ -8,9 +8,12 @@
 #include <linux/init.h>
 #include <linux/slab.h>
 #include <linux/err.h>
+#include <linux/key.h>
 #include <linux/nvme-tcp.h>
+#include <linux/nvme-keyring.h>
 #include <net/sock.h>
 #include <net/tcp.h>
+#include <net/handshake.h>
 #include <linux/blk-mq.h>
 #include <crypto/hash.h>
 #include <net/busy_poll.h>
@@ -30,6 +33,14 @@ struct nvme_tcp_queue;
 static int so_priority;
 module_param(so_priority, int, 0644);
 MODULE_PARM_DESC(so_priority, "nvme tcp socket optimize priority");
+
+/*
+ * TLS handshake timeout
+ */
+static int tls_handshake_timeout = 10;
+module_param(tls_handshake_timeout, int, 0644);
+MODULE_PARM_DESC(tls_handshake_timeout,
+		 "nvme TLS handshake timeout in seconds (default 10)");
 
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
 /* lockdep can detect a circular dependency of the form
@@ -104,6 +115,7 @@ enum nvme_tcp_queue_flags {
 	NVME_TCP_Q_ALLOCATED	= 0,
 	NVME_TCP_Q_LIVE		= 1,
 	NVME_TCP_Q_POLLING	= 2,
+	NVME_TCP_Q_TLS		= 3,
 };
 
 enum nvme_tcp_recv_state {
@@ -147,6 +159,9 @@ struct nvme_tcp_queue {
 	struct ahash_request	*snd_hash;
 	__le32			exp_ddgst;
 	__le32			recv_ddgst;
+
+	struct completion       *tls_complete;
+	int                     tls_err;
 
 	struct page_frag_cache	pf_cache;
 
@@ -1505,7 +1520,102 @@ static void nvme_tcp_set_queue_io_cpu(struct nvme_tcp_queue *queue)
 	queue->io_cpu = cpumask_next_wrap(n - 1, cpu_online_mask, -1, false);
 }
 
-static int nvme_tcp_alloc_queue(struct nvme_ctrl *nctrl, int qid)
+/*
+ * nvme_tcp_lookup_psk - Look up PSKs to use for TLS
+ *
+ */
+static int nvme_tcp_lookup_psks(struct nvme_ctrl *nctrl,
+			       key_serial_t *keylist, int num_keys)
+{
+	enum nvme_tcp_tls_cipher cipher = NVME_TCP_TLS_CIPHER_SHA384;
+	struct key *tls_key;
+	int num = 0;
+	bool generated = false;
+
+	/* Check for pre-provisioned keys; retained keys first */
+	do {
+		tls_key = nvme_tls_psk_lookup(NULL, nctrl->opts->host->nqn,
+					      nctrl->opts->subsysnqn,
+					      cipher, generated);
+		if (!IS_ERR(tls_key)) {
+			keylist[num] = tls_key->serial;
+			num++;
+			key_put(tls_key);
+		}
+		if (cipher == NVME_TCP_TLS_CIPHER_SHA384)
+			cipher = NVME_TCP_TLS_CIPHER_SHA256;
+		else {
+			if (generated)
+				cipher = NVME_TCP_TLS_CIPHER_INVALID;
+			else {
+				cipher = NVME_TCP_TLS_CIPHER_SHA384;
+				generated = true;
+			}
+		}
+	} while(cipher != NVME_TCP_TLS_CIPHER_INVALID);
+	return num;
+}
+
+static void nvme_tcp_tls_done(void *data, int status, key_serial_t peerid)
+{
+	struct nvme_tcp_queue *queue = data;
+	struct nvme_tcp_ctrl *ctrl = queue->ctrl;
+	int qid = nvme_tcp_queue_id(queue);
+
+	dev_dbg(ctrl->ctrl.device, "queue %d: TLS handshake done, key %x, status %d\n",
+		qid, peerid, status);
+
+	queue->tls_err = -status;
+	if (queue->tls_complete)
+		complete(queue->tls_complete);
+}
+
+static int nvme_tcp_start_tls(struct nvme_ctrl *nctrl,
+			      struct nvme_tcp_queue *queue,
+			      key_serial_t peerid)
+{
+	int qid = nvme_tcp_queue_id(queue);
+	int ret;
+	struct tls_handshake_args args;
+	unsigned long tmo = tls_handshake_timeout * HZ;
+	DECLARE_COMPLETION_ONSTACK(tls_complete);
+
+	dev_dbg(nctrl->device, "queue %d: start TLS with key %x\n",
+		qid, peerid);
+	args.ta_sock = queue->sock;
+	args.ta_done = nvme_tcp_tls_done;
+	args.ta_data = queue;
+	args.ta_my_peerids[0] = peerid;
+	args.ta_num_peerids = 1;
+	args.ta_keyring = nvme_keyring_id();
+	args.ta_timeout_ms = tls_handshake_timeout * 2 * 1000;
+	queue->tls_err = -EOPNOTSUPP;
+	queue->tls_complete = &tls_complete;
+	ret = tls_client_hello_psk(&args, GFP_KERNEL);
+	if (ret) {
+		dev_dbg(nctrl->device, "queue %d: failed to start TLS: %d\n",
+			qid, ret);
+		return ret;
+	}
+	if (wait_for_completion_timeout(queue->tls_complete, tmo) == 0) {
+		dev_dbg(nctrl->device,
+			"queue %d: TLS handshake timeout\n", qid);
+		queue->tls_complete = NULL;
+		ret = -ETIMEDOUT;
+	} else {
+		dev_dbg(nctrl->device,
+			"queue %d: TLS handshake complete, error %d\n",
+			qid, queue->tls_err);
+		ret = queue->tls_err;
+	}
+	queue->tls_complete = NULL;
+	if (!ret)
+		set_bit(NVME_TCP_Q_TLS, &queue->flags);
+	return ret;
+}
+
+static int nvme_tcp_alloc_queue(struct nvme_ctrl *nctrl, int qid,
+				key_serial_t peerid)
 {
 	struct nvme_tcp_ctrl *ctrl = to_tcp_ctrl(nctrl);
 	struct nvme_tcp_queue *queue = &ctrl->queues[qid];
@@ -1626,6 +1736,13 @@ static int nvme_tcp_alloc_queue(struct nvme_ctrl *nctrl, int qid)
 		dev_err(nctrl->device,
 			"failed to connect socket: %d\n", ret);
 		goto err_rcv_pdu;
+	}
+
+	/* If PSKs are configured try to start TLS */
+	if (peerid) {
+		ret = nvme_tcp_start_tls(nctrl, queue, peerid);
+		if (ret)
+			goto err_init_connect;
 	}
 
 	ret = nvme_tcp_init_connection(queue);
@@ -1774,11 +1891,22 @@ out_stop_queues:
 
 static int nvme_tcp_alloc_admin_queue(struct nvme_ctrl *ctrl)
 {
-	int ret;
+	int ret = -EINVAL, num_keys, k;
+	key_serial_t keylist[4];
 
-	ret = nvme_tcp_alloc_queue(ctrl, 0);
-	if (ret)
-		return ret;
+	memset(keylist, 0, sizeof(key_serial_t));
+	num_keys = nvme_tcp_lookup_psks(ctrl, keylist, 4);
+	for (k = 0; k < num_keys; k++) {
+		ret = nvme_tcp_alloc_queue(ctrl, 0, keylist[k]);
+		if (!ret)
+			break;
+	}
+	if (ret) {
+		/* Try without TLS */
+		ret = nvme_tcp_alloc_queue(ctrl, 0, 0);
+		if (ret)
+			goto out_free_queue;
+	}
 
 	ret = nvme_tcp_alloc_async_req(to_tcp_ctrl(ctrl));
 	if (ret)
@@ -1793,12 +1921,23 @@ out_free_queue:
 
 static int __nvme_tcp_alloc_io_queues(struct nvme_ctrl *ctrl)
 {
-	int i, ret;
+	int i, ret, num_keys = 0, k;
+	key_serial_t keylist[4];
 
+	memset(keylist, 0, sizeof(key_serial_t));
+	num_keys = nvme_tcp_lookup_psks(ctrl, keylist, 4);
 	for (i = 1; i < ctrl->queue_count; i++) {
-		ret = nvme_tcp_alloc_queue(ctrl, i);
-		if (ret)
-			goto out_free_queues;
+		ret = -EINVAL;
+		for (k = 0; k < num_keys; k++) {
+			ret = nvme_tcp_alloc_queue(ctrl, i, keylist[k]);
+			if (!ret)
+				break;
+		}
+		if (ret) {
+			ret = nvme_tcp_alloc_queue(ctrl, i, 0);
+			if (ret)
+				goto out_free_queues;
+		}
 	}
 
 	return 0;
