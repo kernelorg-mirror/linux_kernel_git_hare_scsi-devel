@@ -650,7 +650,7 @@ static int nvmet_try_send_response(struct nvmet_tcp_cmd *cmd,
 
 	if (!last_in_batch && cmd->queue->send_list_len)
 		flags |= MSG_MORE | MSG_SENDPAGE_NOTLAST;
-	else
+	else if (!cmd->queue->tls_psk)
 		flags |= MSG_EOR;
 
 	ret = kernel_sendpage(cmd->queue->sock, virt_to_page(cmd->rsp_pdu),
@@ -678,7 +678,7 @@ static int nvmet_try_send_r2t(struct nvmet_tcp_cmd *cmd, bool last_in_batch)
 
 	if (!last_in_batch && cmd->queue->send_list_len)
 		flags |= MSG_MORE | MSG_SENDPAGE_NOTLAST;
-	else
+	else if (!cmd->queue->tls_psk)
 		flags |= MSG_EOR;
 
 	ret = kernel_sendpage(cmd->queue->sock, virt_to_page(cmd->r2t_pdu),
@@ -708,7 +708,7 @@ static int nvmet_try_send_ddgst(struct nvmet_tcp_cmd *cmd, bool last_in_batch)
 
 	if (!last_in_batch && cmd->queue->send_list_len)
 		msg.msg_flags |= MSG_MORE;
-	else
+	else if (!cmd->queue->tls_psk)
 		msg.msg_flags |= MSG_EOR;
 
 	ret = kernel_sendmsg(queue->sock, &msg, &iov, 1, iov.iov_len);
