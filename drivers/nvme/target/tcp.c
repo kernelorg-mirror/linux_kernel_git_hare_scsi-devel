@@ -570,9 +570,14 @@ static int nvmet_try_send_data_pdu(struct nvmet_tcp_cmd *cmd)
 	int left = sizeof(*cmd->data_pdu) - cmd->offset + hdgst;
 	int ret;
 
-	ret = kernel_sendpage(cmd->queue->sock, virt_to_page(cmd->data_pdu),
-			offset_in_page(cmd->data_pdu) + cmd->offset,
-			left, MSG_DONTWAIT | MSG_MORE | MSG_SENDPAGE_NOTLAST);
+	if (cmd->queue->tls_psk)
+		ret = sock_no_sendpage(cmd->queue->sock, virt_to_page(cmd->data_pdu),
+				      offset_in_page(cmd->data_pdu) + cmd->offset,
+				      left, MSG_DONTWAIT | MSG_MORE);
+	else
+		ret = kernel_sendpage(cmd->queue->sock, virt_to_page(cmd->data_pdu),
+				      offset_in_page(cmd->data_pdu) + cmd->offset,
+				      left, MSG_DONTWAIT | MSG_MORE | MSG_SENDPAGE_NOTLAST);
 	if (ret <= 0)
 		return ret;
 
@@ -600,10 +605,17 @@ static int nvmet_try_send_data(struct nvmet_tcp_cmd *cmd, bool last_in_batch)
 		if ((!last_in_batch && cmd->queue->send_list_len) ||
 		    cmd->wbytes_done + left < cmd->req.transfer_len ||
 		    queue->data_digest || !queue->nvme_sq.sqhd_disabled)
-			flags |= MSG_MORE | MSG_SENDPAGE_NOTLAST;
+			flags |= MSG_MORE;
 
-		ret = kernel_sendpage(cmd->queue->sock, page, cmd->offset,
-					left, flags);
+		if (queue->tls_psk)
+			ret = sock_no_sendpage(cmd->queue->sock, page, cmd->offset,
+					       left, flags);
+		else {
+			if (flags & MSG_MORE)
+				flags |= MSG_SENDPAGE_NOTLAST;
+			ret = kernel_sendpage(cmd->queue->sock, page, cmd->offset,
+					      left, flags);
+		}
 		if (ret <= 0)
 			return ret;
 
@@ -645,12 +657,19 @@ static int nvmet_try_send_response(struct nvmet_tcp_cmd *cmd,
 	int ret;
 
 	if (!last_in_batch && cmd->queue->send_list_len)
-		flags |= MSG_MORE | MSG_SENDPAGE_NOTLAST;
-	else
+		flags |= MSG_MORE;
+	else if (!cmd->queue->tls_psk)
 		flags |= MSG_EOR;
 
-	ret = kernel_sendpage(cmd->queue->sock, virt_to_page(cmd->rsp_pdu),
-		offset_in_page(cmd->rsp_pdu) + cmd->offset, left, flags);
+	if (cmd->queue->tls_psk)
+		ret = sock_no_sendpage(cmd->queue->sock, virt_to_page(cmd->rsp_pdu),
+			offset_in_page(cmd->rsp_pdu) + cmd->offset, left, flags);
+	else {
+		if (flags & MSG_MORE)
+			flags |= MSG_SENDPAGE_NOTLAST;
+		ret = kernel_sendpage(cmd->queue->sock, virt_to_page(cmd->rsp_pdu),
+			offset_in_page(cmd->rsp_pdu) + cmd->offset, left, flags);
+	}
 	if (ret <= 0)
 		return ret;
 	cmd->offset += ret;
@@ -673,12 +692,19 @@ static int nvmet_try_send_r2t(struct nvmet_tcp_cmd *cmd, bool last_in_batch)
 	int ret;
 
 	if (!last_in_batch && cmd->queue->send_list_len)
-		flags |= MSG_MORE | MSG_SENDPAGE_NOTLAST;
-	else
+		flags |= MSG_MORE;
+	else if (!cmd->queue->tls_psk)
 		flags |= MSG_EOR;
 
-	ret = kernel_sendpage(cmd->queue->sock, virt_to_page(cmd->r2t_pdu),
-		offset_in_page(cmd->r2t_pdu) + cmd->offset, left, flags);
+	if (cmd->queue->tls_psk)
+		ret = sock_no_sendpage(cmd->queue->sock, virt_to_page(cmd->r2t_pdu),
+			offset_in_page(cmd->r2t_pdu) + cmd->offset, left, flags);
+	else {
+		if (flags & MSG_MORE)
+			flags |= MSG_SENDPAGE_NOTLAST;
+		ret = kernel_sendpage(cmd->queue->sock, virt_to_page(cmd->r2t_pdu),
+			offset_in_page(cmd->r2t_pdu) + cmd->offset, left, flags);
+	}
 	if (ret <= 0)
 		return ret;
 	cmd->offset += ret;
