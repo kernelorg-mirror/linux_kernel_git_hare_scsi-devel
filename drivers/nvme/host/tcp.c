@@ -13,6 +13,7 @@
 #include <linux/nvme-keyring.h>
 #include <net/sock.h>
 #include <net/tcp.h>
+#include <net/tls.h>
 #include <net/handshake.h>
 #include <linux/blk-mq.h>
 #include <crypto/hash.h>
@@ -727,7 +728,12 @@ static int nvme_tcp_recv_pdu(struct nvme_tcp_queue *queue, bool pending)
 {
 	struct nvme_tcp_hdr *hdr;
 	size_t rcv_len = queue->pdu_remaining;
+	char cbuf[CMSG_LEN(sizeof(char))] = {};
+	struct cmsghdr *cmsg;
+	unsigned char ctype;
 	struct msghdr msg = {
+		.msg_control = cbuf,
+		.msg_controllen = sizeof(cbuf),
 		.msg_flags = pending ? 0 : MSG_DONTWAIT,
 	};
 	struct kvec iov = {
@@ -743,6 +749,18 @@ static int nvme_tcp_recv_pdu(struct nvme_tcp_queue *queue, bool pending)
 			     iov.iov_len, msg.msg_flags);
 	if (ret <= 0)
 		return ret;
+	cmsg = (struct cmsghdr *)cbuf;
+	if (CMSG_OK(&msg, cmsg) &&
+	    cmsg->cmsg_level == SOL_TLS &&
+	    cmsg->cmsg_type == TLS_GET_RECORD_TYPE) {
+		ctype = *((unsigned char *)CMSG_DATA(cmsg));
+		if (ctype != TLS_RECORD_TYPE_DATA) {
+			dev_err(queue->ctrl->ctrl.device,
+				"queue %d unhandled TLS record %d\n",
+				nvme_tcp_queue_id(queue), ctype);
+			return -ENOTCONN;
+		}
+	}
 
 	rcv_len = ret;
 	queue->pdu_remaining -= rcv_len;
@@ -793,6 +811,9 @@ static int nvme_tcp_recv_data(struct nvme_tcp_queue *queue)
 	struct request *rq =
 		nvme_cid_to_rq(nvme_tcp_tagset(queue), pdu->command_id);
 	struct nvme_tcp_request *req = blk_mq_rq_to_pdu(rq);
+	char cbuf[CMSG_LEN(sizeof(char))];
+	struct cmsghdr *cmsg;
+	unsigned char ctype;
 
 	if (nvme_tcp_recv_state(queue) != NVME_TCP_RECV_DATA)
 		return 0;
@@ -824,6 +845,8 @@ static int nvme_tcp_recv_data(struct nvme_tcp_queue *queue)
 		/* we can read only from what is left in this bio */
 		memset(&msg, 0, sizeof(msg));
 		msg.msg_iter = req->iter;
+		msg.msg_control = cbuf;
+		msg.msg_controllen = sizeof(cbuf);
 
 		ret = sock_recvmsg(queue->sock, &msg, 0);
 		if (ret <= 0) {
@@ -831,6 +854,18 @@ static int nvme_tcp_recv_data(struct nvme_tcp_queue *queue)
 				"queue %d failed to receive request %#x data",
 				nvme_tcp_queue_id(queue), rq->tag);
 			return ret;
+		}
+		cmsg = (struct cmsghdr *)cbuf;
+		if (CMSG_OK(&msg, cmsg) &&
+		    cmsg->cmsg_level == SOL_TLS &&
+		    cmsg->cmsg_type == TLS_GET_RECORD_TYPE) {
+			ctype = *((unsigned char *)CMSG_DATA(cmsg));
+			if (ctype != TLS_RECORD_TYPE_DATA) {
+				dev_err(queue->ctrl->ctrl.device,
+					"queue %d unhandled TLS record %d\n",
+					nvme_tcp_queue_id(queue), ctype);
+				return -ENOTCONN;
+			}
 		}
 
 		queue->data_remaining -= ret;
@@ -861,7 +896,12 @@ static int nvme_tcp_recv_ddgst(struct nvme_tcp_queue *queue)
 	char *ddgst = (char *)&queue->recv_ddgst;
 	size_t recv_len = queue->ddgst_remaining;
 	off_t off = NVME_TCP_DIGEST_LENGTH - queue->ddgst_remaining;
+	char cbuf[CMSG_LEN(sizeof(char))] = {};
+	struct cmsghdr *cmsg;
+	unsigned char ctype;
 	struct msghdr msg = {
+		.msg_control = cbuf,
+		.msg_controllen = sizeof(cbuf),
 		.msg_flags = 0,
 	};
 	struct kvec iov = {
@@ -877,6 +917,18 @@ static int nvme_tcp_recv_ddgst(struct nvme_tcp_queue *queue)
 			     msg.msg_flags);
 	if (ret <= 0)
 		return ret;
+	cmsg = (struct cmsghdr *)cbuf;
+	if (CMSG_OK(&msg, cmsg) &&
+	    cmsg->cmsg_level == SOL_TLS &&
+	    cmsg->cmsg_type == TLS_GET_RECORD_TYPE) {
+		ctype = *((unsigned char *)CMSG_DATA(cmsg));
+		if (ctype != TLS_RECORD_TYPE_DATA) {
+			dev_err(queue->ctrl->ctrl.device,
+				"queue %d unhandled TLS record %d\n",
+				nvme_tcp_queue_id(queue), ctype);
+			return -ENOTCONN;
+		}
+	}
 
 	recv_len = ret;
 	queue->ddgst_remaining -= recv_len;
@@ -1372,6 +1424,9 @@ static int nvme_tcp_init_connection(struct nvme_tcp_queue *queue)
 {
 	struct nvme_tcp_icreq_pdu *icreq;
 	struct nvme_tcp_icresp_pdu *icresp;
+	char cbuf[CMSG_LEN(sizeof(char))] = {};
+	struct cmsghdr *cmsg;
+	unsigned char ctype;
 	struct msghdr msg = {};
 	struct kvec iov;
 	bool ctrl_hdgst, ctrl_ddgst;
@@ -1409,10 +1464,23 @@ static int nvme_tcp_init_connection(struct nvme_tcp_queue *queue)
 	memset(&msg, 0, sizeof(msg));
 	iov.iov_base = icresp;
 	iov.iov_len = sizeof(*icresp);
+	msg.msg_control = cbuf;
+	msg.msg_controllen = sizeof(cbuf);
 	ret = kernel_recvmsg(queue->sock, &msg, &iov, 1,
 			iov.iov_len, msg.msg_flags);
 	if (ret < 0)
 		goto free_icresp;
+	cmsg = (struct cmsghdr *)cbuf;
+	if (CMSG_OK(&msg, cmsg) &&
+	    cmsg->cmsg_level == SOL_TLS &&
+	    cmsg->cmsg_type == TLS_GET_RECORD_TYPE) {
+		ctype = *((unsigned char *)CMSG_DATA(cmsg));
+		if (ctype != TLS_RECORD_TYPE_DATA) {
+			pr_err("queue %d: unhandled TLS record %d\n",
+			       nvme_tcp_queue_id(queue), ctype);
+			return -ENOTCONN;
+		}
+	}
 
 	ret = -EINVAL;
 	if (icresp->hdr.type != nvme_tcp_icresp) {
