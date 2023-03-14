@@ -218,6 +218,15 @@ static inline struct blk_mq_tags *nvme_tcp_tagset(struct nvme_tcp_queue *queue)
 	return queue->ctrl->tag_set.tags[queue_idx - 1];
 }
 
+static inline bool nvme_tcp_tls_enabled(struct nvme_tcp_queue *queue)
+{
+#ifdef CONFIG_NVME_TLS
+	return (queue->ctrl->ctrl.tls_key != NULL);
+#else
+	return false;
+#endif
+}
+
 static inline u8 nvme_tcp_hdgst_len(struct nvme_tcp_queue *queue)
 {
 	return queue->hdr_digest ? NVME_TCP_DIGEST_LENGTH : 0;
@@ -1021,12 +1030,14 @@ static int nvme_tcp_try_send_data(struct nvme_tcp_request *req)
 		int req_data_sent = req->data_sent;
 		int ret, flags = MSG_DONTWAIT;
 
-		if (last && !queue->data_digest && !nvme_tcp_queue_more(queue))
+		if (!last || queue->data_digest || nvme_tcp_queue_more(queue))
+			flags |= MSG_MORE;
+		else if (!nvme_tcp_tls_enabled(queue))
 			flags |= MSG_EOR;
-		else
-			flags |= MSG_MORE | MSG_SENDPAGE_NOTLAST;
 
 		if (sendpage_ok(page)) {
+			if (flags & MSG_MORE)
+				flags |= MSG_SENDPAGE_NOTLAST;
 			ret = kernel_sendpage(queue->sock, page, offset, len,
 					flags);
 		} else {
@@ -1077,9 +1088,11 @@ static int nvme_tcp_try_send_cmd_pdu(struct nvme_tcp_request *req)
 	int flags = MSG_DONTWAIT;
 	int ret;
 
-	if (inline_data || nvme_tcp_queue_more(queue))
-		flags |= MSG_MORE | MSG_SENDPAGE_NOTLAST;
-	else
+	if (inline_data || nvme_tcp_queue_more(queue)) {
+		flags |= MSG_MORE;
+		if (!nvme_tcp_tls_enabled(queue))
+			flags |= MSG_SENDPAGE_NOTLAST;
+	} else if (!nvme_tcp_tls_enabled(queue))
 		flags |= MSG_EOR;
 
 	if (queue->hdr_digest && !req->offset)
@@ -1154,9 +1167,8 @@ static int nvme_tcp_try_send_ddgst(struct nvme_tcp_request *req)
 
 	if (nvme_tcp_queue_more(queue))
 		msg.msg_flags |= MSG_MORE;
-	else
+	else if (!nvme_tcp_tls_enabled(queue))
 		msg.msg_flags |= MSG_EOR;
-
 	ret = kernel_sendmsg(queue->sock, &msg, &iov, 1, iov.iov_len);
 	if (unlikely(ret <= 0))
 		return ret;
