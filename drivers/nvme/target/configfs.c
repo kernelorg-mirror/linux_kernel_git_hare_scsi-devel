@@ -15,6 +15,10 @@
 #ifdef CONFIG_NVME_TARGET_AUTH
 #include <linux/nvme-auth.h>
 #endif
+#include <linux/key.h>
+#ifdef CONFIG_NVME_TLS
+#include <linux/nvme-keyring.h>
+#endif
 #include <crypto/hash.h>
 #include <crypto/kpp.h>
 
@@ -294,6 +298,48 @@ static ssize_t nvmet_param_pi_enable_store(struct config_item *item,
 CONFIGFS_ATTR(nvmet_, param_pi_enable);
 #endif
 
+#ifdef CONFIG_NVME_TLS
+static ssize_t nvmet_param_keyring_show(struct config_item *item,
+		char *page)
+{
+	struct nvmet_port *port = to_nvmet_port(item);
+
+	if (!port->keyring)
+		return sprintf(page, "\n");
+	return snprintf(page, PAGE_SIZE, "%s\n",
+			port->keyring->description);
+}
+
+static ssize_t nvmet_param_keyring_store(struct config_item *item,
+		const char *page, size_t count)
+{
+	struct nvmet_port *port = to_nvmet_port(item);
+	struct key *keyring;
+	unsigned int keyring_id;
+	int ret;
+
+	if (nvmet_is_port_enabled(port, __func__))
+		return -EACCES;
+
+	ret = kstrtou32(page, 0, &keyring_id);
+	if (ret) {
+		pr_err("Invalid keyring id '%s'\n", page);
+		return ret;
+	}
+	keyring = key_lookup(keyring_id);
+	if (IS_ERR(keyring)) {
+		pr_err("Invalid keyring '%08x'\n", keyring_id);
+		return PTR_ERR(keyring);
+	}
+	if (port->keyring)
+		key_put(port->keyring);
+	port->keyring = keyring;
+	return count;
+}
+
+CONFIGFS_ATTR(nvmet_, param_keyring);
+#endif
+
 static ssize_t nvmet_addr_trtype_show(struct config_item *item,
 		char *page)
 {
@@ -404,9 +450,12 @@ static ssize_t nvmet_addr_tsas_store(struct config_item *item,
 	return -EINVAL;
 
 found:
-	nvmet_port_init_tsas_tcp(port, nvmet_addr_tsas_tcp[i].type);
 	if (nvmet_addr_tsas_tcp[i].type == NVMF_TCP_SECTYPE_TLS13) {
 #ifdef CONFIG_NVME_TLS
+		if (!port->keyring) {
+			pr_err("NVMe keyring not available, cannot enable TLS 1.3\n");
+			return -ENOTSUPP;
+		}
 		if (NVMET_PORT_TREQ(port) == NVMF_TREQ_NOT_SPECIFIED)
 			treq |= NVMF_TREQ_REQUIRED;
 		else
@@ -419,6 +468,8 @@ found:
 		/* Set to 'not specified' if TLS is not enabled */
 		treq |= NVMF_TREQ_NOT_SPECIFIED;
 	}
+	port->disc_addr.treq = treq;
+	nvmet_port_init_tsas_tcp(port, nvmet_addr_tsas_tcp[i].type);
 	return count;
 }
 
@@ -1825,6 +1876,8 @@ static void nvmet_port_release(struct config_item *item)
 	flush_workqueue(nvmet_wq);
 	list_del(&port->global_entry);
 
+	if (port->keyring)
+		key_put(port->keyring);
 	kfree(port->ana_state);
 	kfree(port);
 }
@@ -1839,6 +1892,9 @@ static struct configfs_attribute *nvmet_port_attrs[] = {
 	&nvmet_attr_param_inline_data_size,
 #ifdef CONFIG_BLK_DEV_INTEGRITY
 	&nvmet_attr_param_pi_enable,
+#endif
+#ifdef CONFIG_NVME_TLS
+	&nvmet_attr_param_keyring,
 #endif
 	NULL,
 };
@@ -1857,6 +1913,7 @@ static struct config_group *nvmet_ports_make(struct config_group *group,
 		const char *name)
 {
 	struct nvmet_port *port;
+	struct key *keyring = NULL;
 	u16 portid;
 	u32 i;
 
@@ -1873,6 +1930,15 @@ static struct config_group *nvmet_ports_make(struct config_group *group,
 		kfree(port);
 		return ERR_PTR(-ENOMEM);
 	}
+
+#ifdef CONFIG_NVME_TLS
+	keyring = key_lookup(nvme_keyring_id());
+	if (IS_ERR(keyring)) {
+		pr_warn("NVMe keyring not available, disabling TLS\n");
+		keyring = NULL;
+	}
+#endif
+	port->keyring = keyring;
 
 	for (i = 1; i <= NVMET_MAX_ANAGRPS; i++) {
 		if (i == NVMET_DEFAULT_ANA_GRPID)
