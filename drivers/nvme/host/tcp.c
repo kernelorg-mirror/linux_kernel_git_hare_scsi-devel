@@ -1034,13 +1034,19 @@ static int nvme_tcp_try_send_data(struct nvme_tcp_request *req)
 		bool last = nvme_tcp_pdu_last_send(req, len);
 		int req_data_sent = req->data_sent;
 		int ret, flags = MSG_DONTWAIT;
+		bool do_sendpage = sendpage_ok(page);
 
-		if (last && !queue->data_digest && !nvme_tcp_queue_more(queue))
+		if (!last || queue->data_digest || nvme_tcp_queue_more(queue))
+			flags |= MSG_MORE;
+		else if (!test_bit(NVME_TCP_Q_TLS, &queue->flags))
 			flags |= MSG_EOR;
-		else
-			flags |= MSG_MORE | MSG_SENDPAGE_NOTLAST;
 
-		if (sendpage_ok(page)) {
+		if (test_bit(NVME_TCP_Q_TLS, &queue->flags))
+			do_sendpage = false;
+
+		if (do_sendpage) {
+			if (flags & MSG_MORE)
+				flags |= MSG_SENDPAGE_NOTLAST;
 			ret = kernel_sendpage(queue->sock, page, offset, len,
 					flags);
 		} else {
@@ -1088,19 +1094,22 @@ static int nvme_tcp_try_send_cmd_pdu(struct nvme_tcp_request *req)
 	bool inline_data = nvme_tcp_has_inline_data(req);
 	u8 hdgst = nvme_tcp_hdgst_len(queue);
 	int len = sizeof(*pdu) + hdgst - req->offset;
-	int flags = MSG_DONTWAIT;
+	struct msghdr msg = { .msg_flags = MSG_DONTWAIT };
+	struct kvec iov = {
+		.iov_base = (u8 *)req->pdu + req->offset,
+		.iov_len = len,
+	};
 	int ret;
 
 	if (inline_data || nvme_tcp_queue_more(queue))
-		flags |= MSG_MORE | MSG_SENDPAGE_NOTLAST;
-	else
-		flags |= MSG_EOR;
+		msg.msg_flags |= MSG_MORE;
+	else if (!test_bit(NVME_TCP_Q_TLS, &queue->flags))
+		msg.msg_flags |= MSG_EOR;
 
 	if (queue->hdr_digest && !req->offset)
 		nvme_tcp_hdgst(queue->snd_hash, pdu, sizeof(*pdu));
 
-	ret = kernel_sendpage(queue->sock, virt_to_page(pdu),
-			offset_in_page(pdu) + req->offset, len,  flags);
+	ret = kernel_sendmsg(queue->sock, &msg, &iov, 1, iov.iov_len);
 	if (unlikely(ret <= 0))
 		return ret;
 
@@ -1131,7 +1140,7 @@ static int nvme_tcp_try_send_data_pdu(struct nvme_tcp_request *req)
 	if (queue->hdr_digest && !req->offset)
 		nvme_tcp_hdgst(queue->snd_hash, pdu, sizeof(*pdu));
 
-	if (!req->h2cdata_left)
+	if (!test_bit(NVME_TCP_Q_TLS, &queue->flags) && !req->h2cdata_left)
 		ret = kernel_sendpage(queue->sock, virt_to_page(pdu),
 				offset_in_page(pdu) + req->offset, len,
 				MSG_DONTWAIT | MSG_MORE | MSG_SENDPAGE_NOTLAST);
@@ -1168,7 +1177,7 @@ static int nvme_tcp_try_send_ddgst(struct nvme_tcp_request *req)
 
 	if (nvme_tcp_queue_more(queue))
 		msg.msg_flags |= MSG_MORE;
-	else
+	else if (!test_bit(NVME_TCP_Q_TLS, &queue->flags))
 		msg.msg_flags |= MSG_EOR;
 
 	ret = kernel_sendmsg(queue->sock, &msg, &iov, 1, iov.iov_len);
