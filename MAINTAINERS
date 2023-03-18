@@ -8944,6 +8944,8 @@ M:	Chuck Lever <chuck.lever@oracle.com>
 L:	netdev@vger.kernel.org
 S:	Maintained
 F:	Documentation/netlink/specs/handshake.yaml
+F:	Documentation/networking/tls-handshake.rst
+F:	include/net/handshake.h
 F:	include/trace/events/handshake.h
 F:	net/handshake/
 
