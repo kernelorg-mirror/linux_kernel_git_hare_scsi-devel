@@ -9,6 +9,8 @@
 struct key *nvme_tls_psk_lookup(struct key *keyring,
 				const char *hostnqn, const char *subnqn,
 				int hmac, bool generated);
+key_serial_t nvme_tls_psk_default(struct key *keyring,
+				  const char *hostnqn, const char *subnqn);
 
 key_serial_t nvme_keyring_id(void);
 
