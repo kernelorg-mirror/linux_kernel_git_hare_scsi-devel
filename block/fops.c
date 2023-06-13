@@ -544,7 +544,7 @@ blkdev_direct_write(struct kiocb *iocb, struct iov_iter *from)
 
 	written = blkdev_direct_IO(iocb, from);
 	if (written > 0) {
-		kiocb_invalidate_post_write(iocb, count);
+		kiocb_invalidate_post_direct_write(iocb, count);
 		iocb->ki_pos += written;
 	}
 	if (written != -EIOCBQUEUED)
