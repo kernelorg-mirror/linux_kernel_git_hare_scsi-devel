@@ -494,6 +494,13 @@ static inline gfp_t readahead_gfp_mask(struct address_space *x)
 	return mapping_gfp_mask(x) | __GFP_NORETRY | __GFP_NOWARN;
 }
 
+static inline int mapping_get_order(struct address_space *x)
+{
+	if (x->host->i_blkbits > PAGE_SHIFT)
+		return x->host->i_blkbits - PAGE_SHIFT;
+	return 0;
+}
+
 typedef int filler_t(struct file *, struct folio *);
 
 pgoff_t page_cache_next_miss(struct address_space *mapping,
