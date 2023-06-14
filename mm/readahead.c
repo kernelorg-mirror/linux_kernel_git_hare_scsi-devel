@@ -285,6 +285,7 @@ static void do_page_cache_ra(struct readahead_control *ractl,
 	struct inode *inode = ractl->mapping->host;
 	unsigned long index = readahead_index(ractl);
 	loff_t isize = i_size_read(inode);
+	unsigned int iblksize = i_blocksize(inode);
 	pgoff_t end_index;	/* The last page we want to read */
 
 	if (isize == 0)
@@ -293,6 +294,9 @@ static void do_page_cache_ra(struct readahead_control *ractl,
 	end_index = (isize - 1) >> PAGE_SHIFT;
 	if (index > end_index)
 		return;
+	if (iblksize > PAGE_SIZE)
+		end_index = ALIGN_DOWN(end_index, iblksize);
+
 	/* Don't read past the page containing the last byte of the file */
 	if (nr_to_read > end_index - index)
 		nr_to_read = end_index - index + 1;
