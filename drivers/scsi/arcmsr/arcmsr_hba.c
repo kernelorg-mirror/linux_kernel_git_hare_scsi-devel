@@ -110,7 +110,7 @@ static int arcmsr_iop_message_xfer(struct AdapterControlBlock *acb,
 					struct scsi_cmnd *cmd);
 static int arcmsr_iop_confirm(struct AdapterControlBlock *acb);
 static int arcmsr_abort(struct scsi_cmnd *);
-static int arcmsr_bus_reset(struct scsi_cmnd *);
+static int arcmsr_bus_reset(struct Scsi_Host *, unsigned int);
 static int arcmsr_bios_param(struct scsi_device *sdev,
 		struct block_device *bdev, sector_t capacity, int *info);
 static int arcmsr_queue_command(struct Scsi_Host *h, struct scsi_cmnd *cmd);
@@ -4571,12 +4571,12 @@ static uint8_t arcmsr_iop_reset(struct AdapterControlBlock *acb)
 	return rtnval;
 }
 
-static int arcmsr_bus_reset(struct scsi_cmnd *cmd)
+static int arcmsr_bus_reset(struct Scsi_Host *shost, unsigned int channel)
 {
-	struct AdapterControlBlock *acb;
+	struct AdapterControlBlock *acb = shost_priv(shost);
 	int retry_count = 0;
 	int rtn = FAILED;
-	acb = (struct AdapterControlBlock *) cmd->device->host->hostdata;
+
 	if (acb->acb_flags & ACB_F_ADAPTER_REMOVED)
 		return SUCCESS;
 	pr_notice("arcmsr: executing bus reset eh.....num_resets = %d,"

@@ -2550,15 +2550,16 @@ int fas216_eh_device_reset(struct scsi_cmnd *SCpnt)
 
 /**
  * fas216_eh_bus_reset - Reset the bus associated with the command
- * @SCpnt: command specifing bus to reset
+ * @shost: host to be reset
+ * @channel: bus number to reset
  *
- * Reset the bus associated with the command.
+ * Reset the bus.
  * Returns: FAILED if unable to reset.
  * Notes: Further commands are blocked.
  */
-int fas216_eh_bus_reset(struct scsi_cmnd *SCpnt)
+int fas216_eh_bus_reset(struct Scsi_Host *shost, unsigned int channel)
 {
-	FAS216_Info *info = (FAS216_Info *)SCpnt->device->host->hostdata;
+	FAS216_Info *info = shost_priv(shost);
 	unsigned long flags;
 	struct scsi_device *SDpnt;
 

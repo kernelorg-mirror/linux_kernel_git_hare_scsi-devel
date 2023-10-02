@@ -7936,9 +7936,9 @@ static void ncr53c8xx_timeout(struct timer_list *t)
 		ncr_flush_done_cmds(done_list);
 }
 
-static int ncr53c8xx_bus_reset(struct scsi_cmnd *cmd)
+static int ncr53c8xx_bus_reset(struct Scsi_Host *host, unsigned int channel)
 {
-	struct ncb *np = ((struct host_data *) cmd->device->host->hostdata)->ncb;
+	struct ncb *np = ((struct host_data *)shost_priv(host))->ncb;
 	int sts;
 	unsigned long flags;
 	struct scsi_cmnd *done_list;

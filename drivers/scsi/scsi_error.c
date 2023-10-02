@@ -911,7 +911,7 @@ static enum scsi_disposition scsi_try_bus_reset(struct scsi_cmnd *scmd)
 	if (!hostt->eh_bus_reset_handler)
 		return FAILED;
 
-	rtn = hostt->eh_bus_reset_handler(scmd);
+	rtn = hostt->eh_bus_reset_handler(host, scmd_channel(scmd));
 
 	if (rtn == SUCCESS) {
 		if (!hostt->skip_settle_delay)
@@ -2378,7 +2378,7 @@ int scsi_error_handler(void *data)
  *		The main purpose of this is to make sure that a CHECK_CONDITION
  *		is properly treated.
  */
-void scsi_report_bus_reset(struct Scsi_Host *shost, int channel)
+void scsi_report_bus_reset(struct Scsi_Host *shost, unsigned int channel)
 {
 	struct scsi_device *sdev;
 

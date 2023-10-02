@@ -670,14 +670,14 @@ static int sym53c8xx_eh_target_reset_handler(struct scsi_cmnd *cmd)
 	return SCSI_SUCCESS;
 }
 
-static int sym53c8xx_eh_bus_reset_handler(struct scsi_cmnd *cmd)
+static int sym53c8xx_eh_bus_reset_handler(struct Scsi_Host *shost,
+					  unsigned int channel)
 {
-	struct Scsi_Host *shost = cmd->device->host;
 	struct sym_data *sym_data = shost_priv(shost);
 	struct pci_dev *pdev = sym_data->pdev;
 	struct sym_hcb *np = sym_data->ncb;
 
-	scmd_printk(KERN_WARNING, cmd, "BUS RESET operation started\n");
+	shost_printk(KERN_WARNING, shost, "BUS RESET operation started\n");
 
 	/*
 	 * Escalate to host reset if the PCI bus went down
@@ -689,7 +689,7 @@ static int sym53c8xx_eh_bus_reset_handler(struct scsi_cmnd *cmd)
 	sym_reset_scsi_bus(np, 1);
 	spin_unlock_irq(shost->host_lock);
 
-	dev_warn(&cmd->device->sdev_gendev, "BUS RESET operation complete.\n");
+	shost_printk(KERN_WARNING, shost, "BUS RESET operation complete.\n");
 	return SCSI_SUCCESS;
 }
 

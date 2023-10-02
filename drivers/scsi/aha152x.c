@@ -1192,9 +1192,9 @@ static int aha152x_bus_reset_host(struct Scsi_Host *shpnt)
  * Reset the bus
  *
  */
-static int aha152x_bus_reset(struct scsi_cmnd *SCpnt)
+static int aha152x_bus_reset(struct Scsi_Host *shpnt, unsigned int channel)
 {
-	return aha152x_bus_reset_host(SCpnt->device->host);
+	return aha152x_bus_reset_host(shpnt);
 }
 
 /*

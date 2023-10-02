@@ -401,7 +401,7 @@ static int qla1280_init_rings(struct scsi_qla_host *);
 static int qla1280_nvram_config(struct scsi_qla_host *);
 static int qla1280_mailbox_command(struct scsi_qla_host *,
 				   uint8_t, uint16_t *);
-static int qla1280_bus_reset(struct scsi_qla_host *, int);
+static int qla1280_bus_reset(struct scsi_qla_host *, unsigned int);
 static int qla1280_device_reset(struct scsi_qla_host *, int, int);
 static int qla1280_abort_command(struct scsi_qla_host *, struct srb *, int);
 static int qla1280_abort_isp(struct scsi_qla_host *);
@@ -979,13 +979,15 @@ qla1280_eh_device_reset(struct scsi_cmnd *cmd)
  *     Reset the specified bus.
  **************************************************************************/
 static int
-qla1280_eh_bus_reset(struct scsi_cmnd *cmd)
+qla1280_eh_bus_reset(struct Scsi_Host *shost, unsigned int bus)
 {
-	int rc;
+	int rc = FAILED;
+	struct scsi_qla_host *ha = shost_priv(shost);
 
-	spin_lock_irq(cmd->device->host->host_lock);
-	rc = qla1280_error_action(cmd, BUS_RESET);
-	spin_unlock_irq(cmd->device->host->host_lock);
+	spin_lock_irq(shost->host_lock);
+	if (qla1280_bus_reset(ha, bus) == 0)
+		rc = qla1280_wait_for_pending_commands(ha, 1, 0);
+	spin_unlock_irq(shost->host_lock);
 
 	return rc;
 }
@@ -2535,7 +2537,7 @@ qla1280_poll(struct scsi_qla_host *ha)
  *      0 = success
  */
 static int
-qla1280_bus_reset(struct scsi_qla_host *ha, int bus)
+qla1280_bus_reset(struct scsi_qla_host *ha, unsigned int bus)
 {
 	uint16_t mb[MAILBOX_REGISTER_COUNT];
 	uint16_t reset_delay;

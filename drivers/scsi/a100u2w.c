@@ -930,13 +930,14 @@ static int inia100_abort(struct scsi_cmnd * cmd)
  Description    : Reset registers, reset a hanging bus and
                   kill active and disconnected commands for target w/o soft reset
  Input          : host  -       Pointer to host adapter structure
+                  channel -     Bus number (unused)
  Output         : None.
  Return         : pSRB  -       Pointer to SCSI request block.
 *****************************************************************************/
-static int inia100_bus_reset(struct scsi_cmnd * cmd)
+static int inia100_bus_reset(struct Scsi_Host * shost, unsigned int channel)
 {				/* I need Host Control Block Information */
 	struct orc_host *host;
-	host = (struct orc_host *) cmd->device->host->hostdata;
+	host = shost_priv(shost);
 	return orc_reset_scsi_bus(host);
 }
 

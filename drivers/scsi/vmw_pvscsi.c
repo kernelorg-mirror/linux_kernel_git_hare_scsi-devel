@@ -947,13 +947,12 @@ static int pvscsi_host_reset(struct Scsi_Host *host)
 	return SUCCESS;
 }
 
-static int pvscsi_bus_reset(struct scsi_cmnd *cmd)
+static int pvscsi_bus_reset(struct Scsi_Host *host, unsigned int channel)
 {
-	struct Scsi_Host *host = cmd->device->host;
 	struct pvscsi_adapter *adapter = shost_priv(host);
 	unsigned long flags;
 
-	scmd_printk(KERN_INFO, cmd, "SCSI Bus reset\n");
+	shost_printk(KERN_INFO, host, "SCSI Bus reset\n");
 
 	/*
 	 * We don't want to queue new requests for this bus after

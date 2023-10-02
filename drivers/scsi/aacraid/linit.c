@@ -1034,20 +1034,18 @@ static int aac_eh_target_reset(struct scsi_cmnd *cmd)
 
 /*
  *	aac_eh_bus_reset	- Bus reset command handling
- *	@scsi_cmd:	SCSI command block causing the reset
+ *	@host:		SCSI host causing the reset
+ *	@channel:	Number of the bus to be reset
  *
  */
-static int aac_eh_bus_reset(struct scsi_cmnd* cmd)
+static int aac_eh_bus_reset(struct Scsi_Host *host, unsigned int channel)
 {
-	struct scsi_device * dev = cmd->device;
-	struct Scsi_Host * host = dev->host;
-	struct aac_dev * aac = (struct aac_dev *)host->hostdata;
+	struct aac_dev * aac = shost_priv(host);
 	int count;
 	u32 cmd_bus;
 	int status = 0;
 
-
-	cmd_bus = aac_logical_to_phys(scmd_channel(cmd));
+	cmd_bus = aac_logical_to_phys(channel);
 	/* Mark the assoc. FIB to not complete, eh handler does this */
 	for (count = 0; count < (host->can_queue + AAC_NUM_MGT_FIB); ++count) {
 		struct fib *fib = &aac->fibs[count];
@@ -1055,6 +1053,7 @@ static int aac_eh_bus_reset(struct scsi_cmnd* cmd)
 		if (fib->hw_fib_va->header.XferState &&
 		    (fib->flags & FIB_CONTEXT_FLAG) &&
 		    (fib->flags & FIB_CONTEXT_FLAG_SCSI_CMD)) {
+			struct scsi_cmnd *cmd;
 			struct aac_hba_map_info *info;
 			u32 bus, cid;
 

@@ -4037,39 +4037,46 @@ out:
 
 /**
  * mpi3mr_eh_bus_reset - Bus reset error handling callback
- * @scmd: SCSI command reference
+ * @shost: SCSI host reference
+ * @channel: bus number
  *
  * Checks whether pending I/Os are present for the RAID volume;
  * if not there's no need to reset the adapter.
  *
  * Return: SUCCESS of successful reset else FAILED
  */
-static int mpi3mr_eh_bus_reset(struct scsi_cmnd *scmd)
+static int mpi3mr_eh_bus_reset(struct Scsi_Host *shost, unsigned int channel)
 {
-	struct mpi3mr_ioc *mrioc = shost_priv(scmd->device->host);
+	struct mpi3mr_ioc *mrioc = shost_priv(shost);
+	struct mpi3mr_tgt_dev *tgtdev;
 	struct mpi3mr_stgt_priv_data *stgt_priv_data;
-	struct mpi3mr_sdev_priv_data *sdev_priv_data;
-	u8 dev_type = MPI3_DEVICE_DEVFORM_VD;
 	int retval = FAILED;
 
-	sdev_priv_data = scmd->device->hostdata;
-	if (sdev_priv_data && sdev_priv_data->tgt_priv_data) {
-		stgt_priv_data = sdev_priv_data->tgt_priv_data;
-		dev_type = stgt_priv_data->dev_type;
+	spin_lock(&mrioc->tgtdev_lock);
+	list_for_each_entry(tgtdev, &mrioc->tgtdev_list, list) {
+		if (!tgtdev->starget || !tgtdev->starget->hostdata)
+			continue;
+		stgt_priv_data = (struct mpi3mr_stgt_priv_data *)
+			tgtdev->starget->hostdata;
+		if (stgt_priv_data->dev_type == MPI3_DEVICE_DEVFORM_VD) {
+			retval = SUCCESS;
+			break;
+		}
 	}
+	spin_unlock(&mrioc->tgtdev_lock);
 
-	if (dev_type == MPI3_DEVICE_DEVFORM_VD) {
+	if (retval == SUCCESS) {
 		mpi3mr_wait_for_host_io(mrioc,
 			MPI3MR_RAID_ERRREC_RESET_TIMEOUT);
-		if (!mpi3mr_get_fw_pending_ios(mrioc))
-			retval = SUCCESS;
+		if (mpi3mr_get_fw_pending_ios(mrioc))
+			retval = FAILED;
 	}
 	if (retval == FAILED)
 		mpi3mr_print_pending_host_io(mrioc);
 
-	sdev_printk(KERN_INFO, scmd->device,
-		"Bus reset is %s for scmd(%p)\n",
-		((retval == SUCCESS) ? "SUCCESS" : "FAILED"), scmd);
+	shost_printk(KERN_INFO, shost,
+		"Bus reset is %s\n",
+		((retval == SUCCESS) ? "SUCCESS" : "FAILED"));
 	return retval;
 }
 
