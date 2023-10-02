@@ -2159,13 +2159,13 @@ clean_pending_aborts_end:
 
 /*
  * SCSI Eh thread issues a Lun Reset when one or more commands on a LUN
- * fail to get aborted. It calls driver's eh_device_reset with a SCSI command
- * on the LUN.
+ * fail to get aborted. It calls driver's eh_device_reset with the LUN
+ * to be reset.
  */
-int fnic_device_reset(struct scsi_cmnd *sc)
+int fnic_device_reset(struct scsi_device *sdev)
 {
-	struct scsi_device *sdev = sc->device;
 	struct request *req;
+	struct scsi_cmnd *sc;
 	struct fc_lport *lp;
 	struct fnic *fnic;
 	struct fnic_io_req *io_req = NULL;
@@ -2193,7 +2193,6 @@ int fnic_device_reset(struct scsi_cmnd *sc)
 	fnic = lport_priv(lp);
 	fnic_stats = &fnic->fnic_stats;
 	reset_stats = &fnic->fnic_stats.reset_stats;
-
 	atomic64_inc(&reset_stats->device_resets);
 
 	FNIC_SCSI_DBG(KERN_DEBUG, fnic->lport->host,

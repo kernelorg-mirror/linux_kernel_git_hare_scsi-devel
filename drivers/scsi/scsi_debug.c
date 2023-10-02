@@ -5685,12 +5685,10 @@ static void scsi_debug_stop_all_queued(struct scsi_device *sdp)
 				scsi_debug_stop_all_queued_iter, sdp);
 }
 
-static int sdebug_fail_lun_reset(struct scsi_cmnd *cmnd)
+static int sdebug_fail_lun_reset(struct scsi_device *sdp)
 {
-	struct scsi_device *sdp = cmnd->device;
 	struct sdebug_dev_info *devip = (struct sdebug_dev_info *)sdp->hostdata;
 	struct sdebug_err_inject *err;
-	unsigned char *cmd = cmnd->cmnd;
 	int ret = 0;
 
 	if (devip == NULL)
@@ -5698,8 +5696,7 @@ static int sdebug_fail_lun_reset(struct scsi_cmnd *cmnd)
 
 	rcu_read_lock();
 	list_for_each_entry_rcu(err, &devip->inject_err_list, list) {
-		if (err->type == ERR_LUN_RESET_FAILED &&
-		    (err->cmd == cmd[0] || err->cmd == 0xff)) {
+		if (err->type == ERR_LUN_RESET_FAILED) {
 			ret = !!err->cnt;
 			if (err->cnt < 0)
 				err->cnt++;
@@ -5713,12 +5710,9 @@ static int sdebug_fail_lun_reset(struct scsi_cmnd *cmnd)
 	return 0;
 }
 
-static int scsi_debug_device_reset(struct scsi_cmnd *SCpnt)
+static int scsi_debug_device_reset(struct scsi_device *sdp)
 {
-	struct scsi_device *sdp = SCpnt->device;
 	struct sdebug_dev_info *devip = sdp->hostdata;
-	u8 *cmd = SCpnt->cmnd;
-	u8 opcode = cmd[0];
 
 	++num_dev_resets;
 
@@ -5729,8 +5723,8 @@ static int scsi_debug_device_reset(struct scsi_cmnd *SCpnt)
 	if (devip)
 		set_bit(SDEBUG_UA_POR, devip->uas_bm);
 
-	if (sdebug_fail_lun_reset(SCpnt)) {
-		scmd_printk(KERN_INFO, SCpnt, "fail lun reset 0x%x\n", opcode);
+	if (sdebug_fail_lun_reset(sdp)) {
+		sdev_printk(KERN_INFO, sdp, "fail lun reset\n");
 		return FAILED;
 	}
 

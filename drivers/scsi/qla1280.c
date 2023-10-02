@@ -797,18 +797,18 @@ qla1280_wait_for_pending_commands(struct scsi_qla_host *ha, int bus, int target)
  *    wait for the results (or time out).
  *
  * Input:
+ *      sdev = Linux SCSI device
  *      cmd = Linux SCSI command packet of the command that cause the
  *            bus reset.
- *      action = error action to take (see action_t)
  *
  * Returns:
  *      SUCCESS or FAILED
  *
  **************************************************************************/
 static int
-qla1280_error_action(struct scsi_cmnd *cmd, enum action action)
+qla1280_error_action(struct scsi_device *sdev, struct scsi_cmnd *cmd)
 {
-	struct scsi_qla_host *ha;
+	struct scsi_qla_host *ha = shost_priv(sdev->host);
 	int bus, target, lun;
 	struct srb *sp;
 	int i, found;
@@ -816,14 +816,14 @@ qla1280_error_action(struct scsi_cmnd *cmd, enum action action)
 	int wait_for_bus=-1;
 	int wait_for_target = -1;
 	DECLARE_COMPLETION_ONSTACK(wait);
+	enum action action = cmd ? ABORT_COMMAND : DEVICE_RESET;
 
 	ENTER("qla1280_error_action");
 
-	ha = (struct scsi_qla_host *)(CMD_HOST(cmd)->hostdata);
 	sp = scsi_cmd_priv(cmd);
-	bus = SCSI_BUS_32(cmd);
-	target = SCSI_TCN_32(cmd);
-	lun = SCSI_LUN_32(cmd);
+	bus = sdev->channel;
+	target = sdev->id;
+	lun = sdev->lun;
 
 	dprintk(4, "error_action %i, istatus 0x%04x\n", action,
 		RD_REG_WORD(&ha->iobase->istatus));
@@ -845,14 +845,14 @@ qla1280_error_action(struct scsi_cmnd *cmd, enum action action)
 	 */
 	found = -1;
 	for (i = 0; i < MAX_OUTSTANDING_COMMANDS; i++) {
-		if (sp == ha->outstanding_cmds[i]) {
+		if (sp && sp == ha->outstanding_cmds[i]) {
 			found = i;
 			sp->wait = &wait; /* we'll wait for it to complete */
 			break;
 		}
 	}
 
-	if (found < 0) {	/* driver doesn't have command */
+	if (sp && found < 0) {	/* driver doesn't have command */
 		result = SUCCESS;
 		if (qla1280_verbose) {
 			printk(KERN_INFO
@@ -862,9 +862,7 @@ qla1280_error_action(struct scsi_cmnd *cmd, enum action action)
 		}
 	}
 
-	switch (action) {
-
-	case ABORT_COMMAND:
+	if (sp) {
 		dprintk(1, "qla1280: RISC aborting command\n");
 		/*
 		 * The abort might fail due to race when the host_lock
@@ -873,9 +871,7 @@ qla1280_error_action(struct scsi_cmnd *cmd, enum action action)
 		 */
 		if (found >= 0)
 			qla1280_abort_command(ha, sp, found);
-		break;
-
-	case DEVICE_RESET:
+	} else {
 		if (qla1280_verbose)
 			printk(KERN_INFO
 			       "scsi(%ld:%d:%d:%d): Queueing device reset "
@@ -885,21 +881,6 @@ qla1280_error_action(struct scsi_cmnd *cmd, enum action action)
 			wait_for_bus = bus;
 			wait_for_target = target;
 		}
-		break;
-
-	case BUS_RESET:
-		if (qla1280_verbose)
-			printk(KERN_INFO "qla1280(%ld:%d): Issued bus "
-			       "reset.\n", ha->host_no, bus);
-		if (qla1280_bus_reset(ha, bus) == 0) {
-			/* issued bus reset, set wait conditions */
-			wait_for_bus = bus;
-		}
-		break;
-
-	default:
-		dprintk(1, "RESET invalid action %d\n", action);
-		return FAILED;
 	}
 
 	/*
@@ -914,7 +895,7 @@ qla1280_error_action(struct scsi_cmnd *cmd, enum action action)
 	if (found >= 0)
 		result = _qla1280_wait_for_single_command(ha, sp, &wait);
 
-	if (action == ABORT_COMMAND && result != SUCCESS) {
+	if (sp && result != SUCCESS) {
 		printk(KERN_WARNING
 		       "scsi(%li:%i:%i:%i): "
 		       "Unable to abort command!\n",
@@ -952,7 +933,7 @@ qla1280_eh_abort(struct scsi_cmnd * cmd)
 	int rc;
 
 	spin_lock_irq(cmd->device->host->host_lock);
-	rc = qla1280_error_action(cmd, ABORT_COMMAND);
+	rc = qla1280_error_action(cmd->device, cmd);
 	spin_unlock_irq(cmd->device->host->host_lock);
 
 	return rc;
@@ -963,13 +944,13 @@ qla1280_eh_abort(struct scsi_cmnd * cmd)
  *     Reset the specified SCSI device
  **************************************************************************/
 static int
-qla1280_eh_device_reset(struct scsi_cmnd *cmd)
+qla1280_eh_device_reset(struct scsi_device *sdev)
 {
 	int rc;
 
-	spin_lock_irq(cmd->device->host->host_lock);
-	rc = qla1280_error_action(cmd, DEVICE_RESET);
-	spin_unlock_irq(cmd->device->host->host_lock);
+	spin_lock_irq(sdev->host->host_lock);
+	rc = qla1280_error_action(sdev, NULL);
+	spin_unlock_irq(sdev->host->host_lock);
 
 	return rc;
 }
