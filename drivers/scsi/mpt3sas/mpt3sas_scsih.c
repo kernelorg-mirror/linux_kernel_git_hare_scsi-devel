@@ -3441,52 +3441,45 @@ scsih_dev_reset(struct scsi_cmnd *scmd)
 
 /**
  * scsih_target_reset - eh threads main target reset routine
- * @scmd: pointer to scsi command object
+ * @starget: pointer to scsi target object
  *
- * Return: SUCCESS if command aborted else FAILED
+ * Return: SUCCESS if target reset suceeded else FAILED
  */
 static int
-scsih_target_reset(struct scsi_cmnd *scmd)
+scsih_target_reset(struct scsi_target *starget)
 {
-	struct MPT3SAS_ADAPTER *ioc = shost_priv(scmd->device->host);
-	struct MPT3SAS_DEVICE *sas_device_priv_data;
+	struct Scsi_Host *shost = dev_to_shost(&starget->dev);
+	struct MPT3SAS_ADAPTER *ioc = shost_priv(shost);
 	struct _sas_device *sas_device = NULL;
 	struct _pcie_device *pcie_device = NULL;
 	u16	handle;
 	u8	tr_method = 0;
 	u8	tr_timeout = 30;
 	int r;
-	struct scsi_target *starget = scmd->device->sdev_target;
 	struct MPT3SAS_TARGET *target_priv_data = starget->hostdata;
 
 	starget_printk(KERN_INFO, starget,
-	    "attempting target reset! scmd(0x%p)\n", scmd);
-	_scsih_tm_display_info(ioc, scmd);
+	    "attempting target reset!\n");
 
-	sas_device_priv_data = scmd->device->hostdata;
-	if (!sas_device_priv_data || !sas_device_priv_data->sas_target ||
-	    ioc->remove_host) {
+	if (!target_priv_data || ioc->remove_host) {
 		starget_printk(KERN_INFO, starget,
-		    "target been deleted! scmd(0x%p)\n", scmd);
-		scmd->result = DID_NO_CONNECT << 16;
-		scsi_done(scmd);
+		    "target been deleted!\n");
 		r = SUCCESS;
 		goto out;
 	}
 
 	/* for hidden raid components obtain the volume_handle */
 	handle = 0;
-	if (sas_device_priv_data->sas_target->flags &
+	if (target_priv_data->flags &
 	    MPT_TARGET_FLAGS_RAID_COMPONENT) {
 		sas_device = mpt3sas_get_sdev_from_target(ioc,
 				target_priv_data);
 		if (sas_device)
 			handle = sas_device->volume_handle;
 	} else
-		handle = sas_device_priv_data->sas_target->handle;
+		handle = target_priv_data->handle;
 
 	if (!handle) {
-		scmd->result = DID_RESET << 16;
 		r = FAILED;
 		goto out;
 	}
@@ -3499,16 +3492,16 @@ scsih_target_reset(struct scsi_cmnd *scmd)
 		tr_method = MPI26_SCSITASKMGMT_MSGFLAGS_PROTOCOL_LVL_RST_PCIE;
 	} else
 		tr_method = MPI2_SCSITASKMGMT_MSGFLAGS_LINK_RESET;
-	r = mpt3sas_scsih_issue_locked_tm(ioc, handle, scmd->device->channel,
-		scmd->device->id, 0,
+	r = mpt3sas_scsih_issue_locked_tm(ioc, handle, starget->channel,
+		starget->id, 0,
 		MPI2_SCSITASKMGMT_TASKTYPE_TARGET_RESET, 0, 0,
 	    tr_timeout, tr_method);
 	/* Check for busy commands after reset */
 	if (r == SUCCESS && atomic_read(&starget->target_busy))
 		r = FAILED;
  out:
-	starget_printk(KERN_INFO, starget, "target reset: %s scmd(0x%p)\n",
-	    ((r == SUCCESS) ? "SUCCESS" : "FAILED"), scmd);
+	starget_printk(KERN_INFO, starget, "target reset: %s\n",
+	    ((r == SUCCESS) ? "SUCCESS" : "FAILED"));
 
 	if (sas_device)
 		sas_device_put(sas_device);

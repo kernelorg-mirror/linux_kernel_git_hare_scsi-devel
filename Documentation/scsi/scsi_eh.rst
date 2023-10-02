@@ -216,6 +216,7 @@ considered to fail always.
 
     int (* eh_abort_handler)(struct scsi_cmnd *);
     int (* eh_device_reset_handler)(struct scsi_cmnd *);
+    int (* eh_target_reset_handler)(struct scsi_target *);
     int (* eh_bus_reset_handler)(struct Scsi_Host *, unsigned int);
     int (* eh_host_reset_handler)(struct Scsi_Host *);
 
@@ -410,6 +411,14 @@ scmd->allowed.
 	    is used.  Also, as we're not issuing SCSI commands and
 	    resetting clears all scmds on the sdev, there is no need
 	    to choose error-completed scmds.
+
+	2. If !list_empty(&eh_work_q), invoke scsi_eh_target_reset().
+
+	``scsi_eh_target_reset``
+
+	    hostt->eh_target_reset_handler() is invoked for each target.
+	    If target reset succeeds, all failed scmds on all ready or
+	    offline sdevs on the target are EH-finished.
 
 	3. If !list_empty(&eh_work_q), invoke scsi_eh_bus_reset()
 

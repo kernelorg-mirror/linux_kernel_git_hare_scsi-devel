@@ -2662,7 +2662,7 @@ static void iscsi_prep_tgt_reset_pdu(struct iscsi_tm *hdr)
 
 /**
  * iscsi_eh_target_reset - reset target
- * @sc: scsi command
+ * @cls_session: iscsi class session
  *
  * This will attempt to send a warm target reset.
  */
@@ -2743,12 +2743,12 @@ done:
  * This will attempt to send a warm target reset. If that fails,
  * we will escalate to ERL0 session recovery.
  */
-int iscsi_eh_recover_target(struct scsi_cmnd *sc)
+int iscsi_eh_recover_target(struct scsi_target *starget)
 {
 	struct iscsi_cls_session *cls_session;
 	int rc;
 
-	cls_session = starget_to_session(scsi_target(sc->device));
+	cls_session = starget_to_session(starget);
 	rc = iscsi_eh_target_reset(cls_session);
 	if (rc == FAILED)
 		rc = iscsi_eh_session_reset(cls_session);

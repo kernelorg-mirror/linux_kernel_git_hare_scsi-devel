@@ -2997,14 +2997,13 @@ static void ibmvfc_dev_cancel_all_noreset(struct scsi_device *sdev, void *data)
 
 /**
  * ibmvfc_eh_target_reset_handler - Reset the target
- * @cmd:	scsi command struct
+ * @starget:	scsi target struct
  *
  * Returns:
  *	SUCCESS / FAST_IO_FAIL / FAILED
  **/
-static int ibmvfc_eh_target_reset_handler(struct scsi_cmnd *cmd)
+static int ibmvfc_eh_target_reset_handler(struct scsi_target *starget)
 {
-	struct scsi_target *starget = scsi_target(cmd->device);
 	struct fc_rport *rport = starget_to_rport(starget);
 	struct Scsi_Host *shost = rport_to_shost(rport);
 	struct ibmvfc_host *vhost = shost_priv(shost);
