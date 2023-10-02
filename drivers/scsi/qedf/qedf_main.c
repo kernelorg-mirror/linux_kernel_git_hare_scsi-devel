@@ -953,12 +953,12 @@ void qedf_ctx_soft_reset(struct fc_lport *lport)
 }
 
 /* Reset the host by gracefully logging out and then logging back in */
-static int qedf_eh_host_reset(struct scsi_cmnd *sc_cmd)
+static int qedf_eh_host_reset(struct Scsi_Host *shost)
 {
 	struct fc_lport *lport;
 	struct qedf_ctx *qedf;
 
-	lport = shost_priv(sc_cmd->device->host);
+	lport = shost_priv(shost);
 	qedf = lport_priv(lport);
 
 	if (atomic_read(&qedf->link_state) == QEDF_LINK_DOWN ||

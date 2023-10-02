@@ -264,7 +264,7 @@ static const struct ufs_dev_quirk ufs_fixups[] = {
 static irqreturn_t ufshcd_tmc_handler(struct ufs_hba *hba);
 static void ufshcd_async_scan(void *data, async_cookie_t cookie);
 static int ufshcd_reset_and_restore(struct ufs_hba *hba);
-static int ufshcd_eh_host_reset_handler(struct scsi_cmnd *cmd);
+static int ufshcd_eh_host_reset_handler(struct Scsi_Host *shost);
 static int ufshcd_clear_tm_cmd(struct ufs_hba *hba, int tag);
 static void ufshcd_hba_exit(struct ufs_hba *hba);
 static int ufshcd_probe_hba(struct ufs_hba *hba, bool init_dev_params);
@@ -7707,13 +7707,13 @@ static int ufshcd_reset_and_restore(struct ufs_hba *hba)
  *
  * Return: SUCCESS or FAILED.
  */
-static int ufshcd_eh_host_reset_handler(struct scsi_cmnd *cmd)
+static int ufshcd_eh_host_reset_handler(struct Scsi_Host *shost)
 {
 	int err = SUCCESS;
 	unsigned long flags;
 	struct ufs_hba *hba;
 
-	hba = shost_priv(cmd->device->host);
+	hba = shost_priv(shost);
 
 	spin_lock_irqsave(hba->host->host_lock, flags);
 	hba->force_reset = true;

@@ -4010,15 +4010,15 @@ static inline void mpi3mr_setup_divert_ws(struct mpi3mr_ioc *mrioc,
 
 /**
  * mpi3mr_eh_host_reset - Host reset error handling callback
- * @scmd: SCSI command reference
+ * @shost: SCSI host reference
  *
  * Issue controller reset
  *
  * Return: SUCCESS of successful reset else FAILED
  */
-static int mpi3mr_eh_host_reset(struct scsi_cmnd *scmd)
+static int mpi3mr_eh_host_reset(struct Scsi_Host *shost)
 {
-	struct mpi3mr_ioc *mrioc = shost_priv(scmd->device->host);
+	struct mpi3mr_ioc *mrioc = shost_priv(shost);
 	int retval = FAILED, ret;
 
 	ret = mpi3mr_soft_reset_handler(mrioc,
@@ -4028,9 +4028,9 @@ static int mpi3mr_eh_host_reset(struct scsi_cmnd *scmd)
 
 	retval = SUCCESS;
 out:
-	sdev_printk(KERN_INFO, scmd->device,
-	    "Host reset is %s for scmd(%p)\n",
-	    ((retval == SUCCESS) ? "SUCCESS" : "FAILED"), scmd);
+	shost_printk(KERN_INFO, shost,
+	    "Host reset is %s\n",
+	    ((retval == SUCCESS) ? "SUCCESS" : "FAILED"));
 
 	return retval;
 }

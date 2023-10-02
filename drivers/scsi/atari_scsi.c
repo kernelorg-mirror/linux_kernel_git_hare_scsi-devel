@@ -667,7 +667,7 @@ static void atari_scsi_falcon_reg_write(unsigned int reg, u8 value)
 
 #include "NCR5380.c"
 
-static int atari_scsi_host_reset(struct scsi_cmnd *cmd)
+static int atari_scsi_host_reset(struct Scsi_Host *shost)
 {
 	int rv;
 	unsigned long flags;
@@ -684,7 +684,7 @@ static int atari_scsi_host_reset(struct scsi_cmnd *cmd)
 		atari_dma_orig_addr = NULL;
 	}
 
-	rv = NCR5380_host_reset(cmd);
+	rv = NCR5380_host_reset(shost);
 
 	/* The 5380 raises its IRQ line while _RST is active but the ST DMA
 	 * "lock" has been released so this interrupt may end up handled by
