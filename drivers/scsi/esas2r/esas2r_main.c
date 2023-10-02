@@ -1096,10 +1096,8 @@ int esas2r_host_reset(struct Scsi_Host *shost)
 	return esas2r_host_bus_reset(shost, true);
 }
 
-int esas2r_bus_reset(struct scsi_cmnd *cmd)
+int esas2r_bus_reset(struct Scsi_Host *shost, unsigned int channel)
 {
-	struct Scsi_Host *shost = cmd->device->host;
-
 	esas2r_log(ESAS2R_LOG_INFO, "bus_reset (%p)", shost);
 
 	return esas2r_host_bus_reset(shost, false);

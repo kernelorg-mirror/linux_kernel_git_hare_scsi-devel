@@ -103,7 +103,7 @@ static void mptfc_set_rport_loss_tmo(struct fc_rport *rport, uint32_t timeout);
 static void mptfc_remove(struct pci_dev *pdev);
 static int mptfc_abort(struct scsi_cmnd *SCpnt);
 static int mptfc_dev_reset(struct scsi_cmnd *SCpnt);
-static int mptfc_bus_reset(struct scsi_cmnd *SCpnt);
+static int mptfc_bus_reset(struct Scsi_Host *shost, unsigned int channel);
 
 static const struct scsi_host_template mptfc_driver_template = {
 	.module				= THIS_MODULE,
@@ -259,11 +259,9 @@ mptfc_dev_reset(struct scsi_cmnd *SCpnt)
 }
 
 static int
-mptfc_bus_reset(struct scsi_cmnd *SCpnt)
+mptfc_bus_reset(struct Scsi_Host *shost, unsigned int channel)
 {
-	struct Scsi_Host *shost = SCpnt->device->host;
 	MPT_SCSI_HOST __maybe_unused *hd = shost_priv(shost);
-	int channel = SCpnt->device->channel;
 	struct mptfc_rport_info *ri;
 	int rtn;
 
@@ -280,10 +278,9 @@ mptfc_bus_reset(struct scsi_cmnd *SCpnt)
 	}
 	if (rtn == 0) {
 		dfcprintk (hd->ioc, printk(MYIOC_s_DEBUG_FMT
-			"%s.%d: %d:%llu, executing recovery.\n", __func__,
-			hd->ioc->name, shost->host_no,
-			SCpnt->device->id, SCpnt->device->lun));
-		rtn = mptscsih_bus_reset(SCpnt);
+			"%s.%d: 0:0, executing recovery.\n", __func__,
+			hd->ioc->name, shost->host_no));
+		rtn = mptscsih_bus_reset(shost, channel);
 	}
 	return rtn;
 }

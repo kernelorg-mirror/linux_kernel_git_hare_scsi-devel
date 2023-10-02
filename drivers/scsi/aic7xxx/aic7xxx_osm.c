@@ -753,16 +753,16 @@ ahc_linux_dev_reset(struct scsi_cmnd *cmd)
  * Reset the SCSI bus.
  */
 static int
-ahc_linux_bus_reset(struct scsi_cmnd *cmd)
+ahc_linux_bus_reset(struct Scsi_Host *shost, unsigned int channel)
 {
 	struct ahc_softc *ahc;
 	int    found;
 	unsigned long flags;
 
-	ahc = *(struct ahc_softc **)cmd->device->host->hostdata;
+	ahc = *(struct ahc_softc **)shost->hostdata;
 
 	ahc_lock(ahc, &flags);
-	found = ahc_reset_channel(ahc, scmd_channel(cmd) + 'A',
+	found = ahc_reset_channel(ahc, channel + 'A',
 				  /*initiate reset*/TRUE);
 	ahc_unlock(ahc, &flags);
 

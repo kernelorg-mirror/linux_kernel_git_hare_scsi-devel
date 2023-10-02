@@ -3022,9 +3022,9 @@ static int pmcraid_eh_device_reset_handler(struct scsi_cmnd *scmd)
 				    RESET_DEVICE_LUN);
 }
 
-static int pmcraid_eh_bus_reset_handler(struct scsi_cmnd *scmd)
+static int pmcraid_eh_bus_reset_handler(struct Scsi_Host *host,
+					unsigned int channel)
 {
-	struct Scsi_Host *host = scmd->device->host;
 	struct pmcraid_instance *pinstance = shost_priv(host);
 	struct pmcraid_resource_entry *res = NULL;
 	struct pmcraid_resource_entry *temp;
@@ -3037,11 +3037,11 @@ static int pmcraid_eh_bus_reset_handler(struct scsi_cmnd *scmd)
 	 */
 	spin_lock_irqsave(&pinstance->resource_lock, lock_flags);
 	list_for_each_entry(temp, &pinstance->used_res_q, queue) {
-		if (scmd->device->channel == PMCRAID_VSET_BUS_ID &&
+		if (channel == PMCRAID_VSET_BUS_ID &&
 		    RES_IS_VSET(temp->cfg_entry)) {
 			res = temp;
 			break;
-		} else if (scmd->device->channel == PMCRAID_PHYS_BUS_ID &&
+		} else if (channel == PMCRAID_PHYS_BUS_ID &&
 			   RES_IS_GSCSI(temp->cfg_entry)) {
 			res = temp;
 			break;

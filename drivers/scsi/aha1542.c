@@ -981,9 +981,9 @@ static int aha1542_reset(struct Scsi_Host *sh, u8 reset_cmd)
 	return SUCCESS;
 }
 
-static int aha1542_bus_reset(struct scsi_cmnd *cmd)
+static int aha1542_bus_reset(struct Scsi_Host *sh, unsigned int channel)
 {
-	return aha1542_reset(cmd->device->host, SCRST);
+	return aha1542_reset(sh, SCRST);
 }
 
 static int aha1542_host_reset(struct Scsi_Host *sh)

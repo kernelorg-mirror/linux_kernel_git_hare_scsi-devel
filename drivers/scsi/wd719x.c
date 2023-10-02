@@ -484,11 +484,11 @@ static int wd719x_abort(struct scsi_cmnd *cmd)
 	return SUCCESS;
 }
 
-static int wd719x_reset(struct scsi_cmnd *cmd, u8 opcode, u8 device)
+static int wd719x_reset(struct Scsi_Host *shost, u8 opcode, u8 device)
 {
 	int result;
 	unsigned long flags;
-	struct wd719x *wd = shost_priv(cmd->device->host);
+	struct wd719x *wd = shost_priv(shost);
 	struct wd719x_scb *scb, *tmp;
 
 	dev_info(&wd->pdev->dev, "%s reset requested\n",
@@ -512,12 +512,13 @@ static int wd719x_reset(struct scsi_cmnd *cmd, u8 opcode, u8 device)
 
 static int wd719x_dev_reset(struct scsi_cmnd *cmd)
 {
-	return wd719x_reset(cmd, WD719X_CMD_RESET, cmd->device->id);
+	return wd719x_reset(cmd->device->host, WD719X_CMD_RESET,
+			    cmd->device->id);
 }
 
-static int wd719x_bus_reset(struct scsi_cmnd *cmd)
+static int wd719x_bus_reset(struct Scsi_Host *host, unsigned int channel)
 {
-	return wd719x_reset(cmd, WD719X_CMD_BUSRESET, 0);
+	return wd719x_reset(host, WD719X_CMD_BUSRESET, 0);
 }
 
 static int wd719x_host_reset(struct Scsi_Host *host)

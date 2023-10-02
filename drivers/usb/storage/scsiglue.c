@@ -478,9 +478,9 @@ static int device_reset(struct scsi_cmnd *srb)
 }
 
 /* Simulate a SCSI bus reset by resetting the device's USB port. */
-static int bus_reset(struct scsi_cmnd *srb)
+static int bus_reset(struct Scsi_Host *shost, unsigned int channel)
 {
-	struct us_data *us = host_to_us(srb->device->host);
+	struct us_data *us = host_to_us(shost);
 	int result;
 
 	usb_stor_dbg(us, "%s called\n", __func__);

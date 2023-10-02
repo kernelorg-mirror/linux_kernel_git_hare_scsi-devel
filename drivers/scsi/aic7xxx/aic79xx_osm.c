@@ -863,21 +863,21 @@ ahd_linux_dev_reset(struct scsi_cmnd *cmd)
  * Reset the SCSI bus.
  */
 static int
-ahd_linux_bus_reset(struct scsi_cmnd *cmd)
+ahd_linux_bus_reset(struct Scsi_Host *shost, unsigned int channel)
 {
 	struct ahd_softc *ahd;
 	int    found;
 	unsigned long flags;
 
-	ahd = *(struct ahd_softc **)cmd->device->host->hostdata;
+	ahd = *(struct ahd_softc **)shost->hostdata;
 #ifdef AHD_DEBUG
 	if ((ahd_debug & AHD_SHOW_RECOVERY) != 0)
-		printk("%s: Bus reset called for cmd %p\n",
-		       ahd_name(ahd), cmd);
+		printk("%s: Bus reset called for channel %u\n",
+		       ahd_name(ahd), channel);
 #endif
 	ahd_lock(ahd, &flags);
 
-	found = ahd_reset_channel(ahd, scmd_channel(cmd) + 'A',
+	found = ahd_reset_channel(ahd, channel + 'A',
 				  /*initiate reset*/TRUE);
 	ahd_unlock(ahd, &flags);
 

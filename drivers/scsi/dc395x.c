@@ -1140,22 +1140,22 @@ static void reset_dev_param(struct AdapterCtlBlk *acb)
 
 /*
  * perform a hard reset on the SCSI bus
- * @cmd - some command for this host (for fetching hooks)
+ * @shost - SCSI Host to be reset
+ * @channel - bus number
  * Returns: SUCCESS (0x2002) on success, else FAILED (0x2003).
  */
-static int __dc395x_eh_bus_reset(struct scsi_cmnd *cmd)
+static int __dc395x_eh_bus_reset(struct Scsi_Host *shost, unsigned int channel)
 {
-	struct AdapterCtlBlk *acb =
-		(struct AdapterCtlBlk *)cmd->device->host->hostdata;
+	struct AdapterCtlBlk *acb = shost_priv(shost);
+
 	dprintkl(KERN_INFO,
-		"eh_bus_reset: (0%p) target=<%02i-%i> cmd=%p\n",
-		cmd, cmd->device->id, (u8)cmd->device->lun, cmd);
+		 "eh_bus_reset: bus=<%02i>\n", channel);
 
 	if (timer_pending(&acb->waiting_timer))
 		del_timer(&acb->waiting_timer);
 
 	/*
-	 * disable interrupt    
+	 * disable interrupt
 	 */
 	DC395x_write8(acb, TRM_S1040_DMA_INTEN, 0x00);
 	DC395x_write8(acb, TRM_S1040_SCSI_INTEN, 0x00);
@@ -1171,7 +1171,7 @@ static int __dc395x_eh_bus_reset(struct scsi_cmnd *cmd)
 	    HZ * acb->eeprom.delay_time;
 
 	/*
-	 * re-enable interrupt      
+	 * re-enable interrupt
 	 */
 	/* Clear SCSI FIFO          */
 	DC395x_write8(acb, TRM_S1040_DMA_CONTROL, CLRXFIFO);
@@ -1189,13 +1189,13 @@ static int __dc395x_eh_bus_reset(struct scsi_cmnd *cmd)
 	return SUCCESS;
 }
 
-static int dc395x_eh_bus_reset(struct scsi_cmnd *cmd)
+static int dc395x_eh_bus_reset(struct Scsi_Host *shost, unsigned int channel)
 {
 	int rc;
 
-	spin_lock_irq(cmd->device->host->host_lock);
-	rc = __dc395x_eh_bus_reset(cmd);
-	spin_unlock_irq(cmd->device->host->host_lock);
+	spin_lock_irq(shost->host_lock);
+	rc = __dc395x_eh_bus_reset(shost, channel);
+	spin_unlock_irq(shost->host_lock);
 
 	return rc;
 }

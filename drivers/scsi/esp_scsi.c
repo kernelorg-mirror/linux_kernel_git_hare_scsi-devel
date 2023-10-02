@@ -2604,9 +2604,10 @@ out_failure:
 	return FAILED;
 }
 
-static int esp_eh_bus_reset_handler(struct scsi_cmnd *cmd)
+static int esp_eh_bus_reset_handler(struct Scsi_Host *shost,
+				    unsigned int channel)
 {
-	struct esp *esp = shost_priv(cmd->device->host);
+	struct esp *esp = shost_priv(shost);
 	struct completion eh_reset;
 	unsigned long flags;
 

@@ -216,7 +216,7 @@ considered to fail always.
 
     int (* eh_abort_handler)(struct scsi_cmnd *);
     int (* eh_device_reset_handler)(struct scsi_cmnd *);
-    int (* eh_bus_reset_handler)(struct scsi_cmnd *);
+    int (* eh_bus_reset_handler)(struct Scsi_Host *, unsigned int);
     int (* eh_host_reset_handler)(struct Scsi_Host *);
 
 Higher-severity actions are taken only when lower-severity actions
