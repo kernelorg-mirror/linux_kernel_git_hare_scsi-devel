@@ -4082,7 +4082,7 @@ static int mpi3mr_eh_bus_reset(struct Scsi_Host *shost, unsigned int channel)
 
 /**
  * mpi3mr_eh_target_reset - Target reset error handling callback
- * @scmd: SCSI command reference
+ * @starget: SCSI target reference
  *
  * Issue Target reset Task Management and verify the scmd is
  * terminated successfully and return status accordingly.
@@ -4090,54 +4090,41 @@ static int mpi3mr_eh_bus_reset(struct Scsi_Host *shost, unsigned int channel)
  * Return: SUCCESS of successful termination of the scmd else
  *         FAILED
  */
-static int mpi3mr_eh_target_reset(struct scsi_cmnd *scmd)
+static int mpi3mr_eh_target_reset(struct scsi_target *starget)
 {
-	struct mpi3mr_ioc *mrioc = shost_priv(scmd->device->host);
+	struct Scsi_Host *shost = dev_to_shost(&starget->dev);
+	struct mpi3mr_ioc *mrioc = shost_priv(shost);
 	struct mpi3mr_stgt_priv_data *stgt_priv_data;
-	struct mpi3mr_sdev_priv_data *sdev_priv_data;
 	u16 dev_handle;
 	u8 resp_code = 0;
 	int retval = FAILED, ret = 0;
 
-	sdev_printk(KERN_INFO, scmd->device,
-	    "Attempting Target Reset! scmd(%p)\n", scmd);
-	scsi_print_command(scmd);
+	starget_printk(KERN_INFO, starget,
+	    "Attempting Target Reset!\n");
 
-	sdev_priv_data = scmd->device->hostdata;
-	if (!sdev_priv_data || !sdev_priv_data->tgt_priv_data) {
-		sdev_printk(KERN_INFO, scmd->device,
-		    "SCSI device is not available\n");
-		retval = SUCCESS;
-		goto out;
-	}
-
-	stgt_priv_data = sdev_priv_data->tgt_priv_data;
+	stgt_priv_data = starget->hostdata;
 	dev_handle = stgt_priv_data->dev_handle;
 	if (stgt_priv_data->dev_removed) {
-		struct scmd_priv *cmd_priv = scsi_cmd_priv(scmd);
-		sdev_printk(KERN_INFO, scmd->device,
+		starget_printk(KERN_INFO, starget,
 		    "%s:target(handle = 0x%04x) is removed, target reset is not issued\n",
 		    mrioc->name, dev_handle);
-		if (!cmd_priv->in_lld_scope || cmd_priv->host_tag == MPI3MR_HOSTTAG_INVALID)
-			retval = SUCCESS;
-		else
-			retval = FAILED;
+		retval = FAILED;
 		goto out;
 	}
-	sdev_printk(KERN_INFO, scmd->device,
+	starget_printk(KERN_INFO, starget,
 	    "Target Reset is issued to handle(0x%04x)\n",
 	    dev_handle);
 
 	ret = mpi3mr_issue_tm(mrioc,
 	    MPI3_SCSITASKMGMT_TASKTYPE_TARGET_RESET, dev_handle,
-	    sdev_priv_data->lun_id, MPI3MR_HOSTTAG_BLK_TMS,
-	    MPI3MR_RESETTM_TIMEOUT, &mrioc->host_tm_cmds, &resp_code, scmd);
+	    /* lun */ 0, MPI3MR_HOSTTAG_BLK_TMS,
+	    MPI3MR_RESETTM_TIMEOUT, &mrioc->host_tm_cmds, &resp_code, NULL);
 
 	if (ret)
 		goto out;
 
 	if (stgt_priv_data->pend_count) {
-		sdev_printk(KERN_INFO, scmd->device,
+		starget_printk(KERN_INFO, starget,
 		    "%s: target has %d pending commands, target reset is failed\n",
 		    mrioc->name, stgt_priv_data->pend_count);
 		goto out;
@@ -4145,9 +4132,9 @@ static int mpi3mr_eh_target_reset(struct scsi_cmnd *scmd)
 
 	retval = SUCCESS;
 out:
-	sdev_printk(KERN_INFO, scmd->device,
-	    "%s: target reset is %s for scmd(%p)\n", mrioc->name,
-	    ((retval == SUCCESS) ? "SUCCESS" : "FAILED"), scmd);
+	starget_printk(KERN_INFO, starget,
+	    "%s: target reset is %s\n", mrioc->name,
+	    ((retval == SUCCESS) ? "SUCCESS" : "FAILED"));
 
 	return retval;
 }

@@ -946,14 +946,15 @@ static enum scsi_disposition scsi_try_target_reset(struct scsi_cmnd *scmd)
 	enum scsi_disposition rtn;
 	struct Scsi_Host *host = scmd->device->host;
 	const struct scsi_host_template *hostt = host->hostt;
+	struct scsi_target *starget = scsi_target(scmd->device);
 
 	if (!hostt->eh_target_reset_handler)
 		return FAILED;
 
-	rtn = hostt->eh_target_reset_handler(scmd);
+	rtn = hostt->eh_target_reset_handler(starget);
 	if (rtn == SUCCESS) {
 		spin_lock_irqsave(host->host_lock, flags);
-		__starget_for_each_device(scsi_target(scmd->device), NULL,
+		__starget_for_each_device(starget, NULL,
 					  __scsi_report_device_reset);
 		spin_unlock_irqrestore(host->host_lock, flags);
 	}
@@ -1634,7 +1635,7 @@ static int scsi_eh_target_reset(struct Scsi_Host *shost,
 	while (!list_empty(&tmp_list)) {
 		struct scsi_cmnd *next, *scmd;
 		enum scsi_disposition rtn;
-		unsigned int id;
+		unsigned int channel, id;
 
 		if (scsi_host_eh_past_deadline(shost)) {
 			/* push back on work queue for further processing */
@@ -1648,6 +1649,7 @@ static int scsi_eh_target_reset(struct Scsi_Host *shost,
 		}
 
 		scmd = list_entry(tmp_list.next, struct scsi_cmnd, eh_entry);
+		channel = scmd_channel(scmd);
 		id = scmd_id(scmd);
 
 		SCSI_LOG_ERROR_RECOVERY(3,
@@ -1662,7 +1664,8 @@ static int scsi_eh_target_reset(struct Scsi_Host *shost,
 					     " target: %d\n",
 					     current->comm, id));
 		list_for_each_entry_safe(scmd, next, &tmp_list, eh_entry) {
-			if (scmd_id(scmd) != id)
+			if (scmd_channel(scmd) != channel ||
+			    scmd_id(scmd) != id)
 				continue;
 
 			if (rtn == SUCCESS)
