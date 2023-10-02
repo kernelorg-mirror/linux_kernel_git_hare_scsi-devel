@@ -5323,26 +5323,25 @@ static int scsi_debug_device_reset(struct scsi_cmnd *SCpnt)
 	return SUCCESS;
 }
 
-static int scsi_debug_target_reset(struct scsi_cmnd *SCpnt)
+static int scsi_debug_target_reset(struct scsi_target *starget)
 {
-	struct scsi_device *sdp = SCpnt->device;
-	struct sdebug_host_info *sdbg_host = shost_to_sdebug_host(sdp->host);
+	struct Scsi_Host *hp = dev_to_shost(&starget->dev);
+	struct sdebug_host_info *sdbg_host = shost_to_sdebug_host(hp);
 	struct sdebug_dev_info *devip;
 	int k = 0;
 
 	++num_target_resets;
 	if (SDEBUG_OPT_ALL_NOISE & sdebug_opts)
-		sdev_printk(KERN_INFO, sdp, "%s\n", __func__);
-
+		starget_printk(KERN_INFO, starget, "%s\n", __func__);
 	list_for_each_entry(devip, &sdbg_host->dev_info_list, dev_list) {
-		if (devip->target == sdp->id) {
+		if (devip->target == starget->id) {
 			set_bit(SDEBUG_UA_BUS_RESET, devip->uas_bm);
 			++k;
 		}
 	}
 
 	if (SDEBUG_OPT_RESET_NOISE & sdebug_opts)
-		sdev_printk(KERN_INFO, sdp,
+		starget_printk(KERN_INFO, starget,
 			    "%s: %d device(s) found in target\n", __func__, k);
 
 	return SUCCESS;

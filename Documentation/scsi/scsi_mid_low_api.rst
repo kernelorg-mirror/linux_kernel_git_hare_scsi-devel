@@ -759,6 +759,24 @@ Details::
 
 
     /**
+    *      eh_target_reset_handler - issue SCSI target reset
+    *      @starget: identifies SCSI target to be reset
+    *
+    *      Returns SUCCESS if command aborted else FAILED
+    *
+    *      Locks: None held
+    *
+    *      Calling context: kernel thread
+    *
+    *      Notes: Invoked from scsi_eh thread. No other commands will be
+    *      queued on current host during eh.
+    *
+    *      Optionally defined in: LLD
+    **/
+	int eh_target_reset_handler(struct scsi_target * starget)
+
+
+    /**
     *      eh_device_reset_handler - issue SCSI device reset
     *      @scp: identifies SCSI device to be reset
     *

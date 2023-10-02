@@ -3061,14 +3061,14 @@ static int pmcraid_eh_bus_reset_handler(struct Scsi_Host *host, int channel)
 				    RESET_DEVICE_BUS);
 }
 
-static int pmcraid_eh_target_reset_handler(struct scsi_cmnd *scmd)
+static int pmcraid_eh_target_reset_handler(struct scsi_target *starget)
 {
-	struct Scsi_Host *shost = scmd->device->host;
+	struct Scsi_Host *shost = dev_to_shost(&starget->dev);
 	struct scsi_device *scsi_dev = NULL, *tmp;
 
 	shost_for_each_device(tmp, shost) {
-		if ((tmp->channel == scmd->device->channel) &&
-		    (tmp->id == scmd->device->id)) {
+		if ((tmp->channel == starget->channel) &&
+		    (tmp->id == starget->id)) {
 			scsi_dev = tmp;
 			break;
 		}
