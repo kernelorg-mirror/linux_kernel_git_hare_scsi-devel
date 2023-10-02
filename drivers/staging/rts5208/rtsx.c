@@ -182,8 +182,12 @@ static int command_abort(struct scsi_cmnd *srb)
  * This invokes the transport reset mechanism to reset the state of the
  * device
  */
-static int device_reset(struct scsi_cmnd *srb)
+static int device_reset(struct scsi_device *sdev)
 {
+	struct rtsx_dev *dev = host_to_rtsx(sdev->host);
+
+	dev_info(&dev->pci->dev, "%s called\n", __func__);
+
 	return SUCCESS;
 }
 

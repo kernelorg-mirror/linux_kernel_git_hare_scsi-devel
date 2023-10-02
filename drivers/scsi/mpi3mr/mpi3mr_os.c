@@ -4141,30 +4141,28 @@ out:
 
 /**
  * mpi3mr_eh_dev_reset- Device reset error handling callback
- * @scmd: SCSI command reference
+ * @sdev: SCSI device reference
  *
- * Issue lun reset Task Management and verify the scmd is
- * terminated successfully and return status accordingly.
+ * Issue lun reset Task Management and return status accordingly.
  *
- * Return: SUCCESS of successful termination of the scmd else
+ * Return: SUCCESS of successful lun reset else
  *         FAILED
  */
-static int mpi3mr_eh_dev_reset(struct scsi_cmnd *scmd)
+static int mpi3mr_eh_dev_reset(struct scsi_device *sdev)
 {
-	struct mpi3mr_ioc *mrioc = shost_priv(scmd->device->host);
+	struct mpi3mr_ioc *mrioc = shost_priv(sdev->host);
 	struct mpi3mr_stgt_priv_data *stgt_priv_data;
 	struct mpi3mr_sdev_priv_data *sdev_priv_data;
 	u16 dev_handle;
 	u8 resp_code = 0;
 	int retval = FAILED, ret = 0;
 
-	sdev_printk(KERN_INFO, scmd->device,
-	    "Attempting Device(lun) Reset! scmd(%p)\n", scmd);
-	scsi_print_command(scmd);
+	sdev_printk(KERN_INFO, sdev,
+	    "Attempting Device(lun) Reset!\n");
 
-	sdev_priv_data = scmd->device->hostdata;
+	sdev_priv_data = sdev->hostdata;
 	if (!sdev_priv_data || !sdev_priv_data->tgt_priv_data) {
-		sdev_printk(KERN_INFO, scmd->device,
+		sdev_printk(KERN_INFO, sdev,
 		    "SCSI device is not available\n");
 		retval = SUCCESS;
 		goto out;
@@ -4173,38 +4171,34 @@ static int mpi3mr_eh_dev_reset(struct scsi_cmnd *scmd)
 	stgt_priv_data = sdev_priv_data->tgt_priv_data;
 	dev_handle = stgt_priv_data->dev_handle;
 	if (stgt_priv_data->dev_removed) {
-		struct scmd_priv *cmd_priv = scsi_cmd_priv(scmd);
-		sdev_printk(KERN_INFO, scmd->device,
+		sdev_printk(KERN_INFO, sdev,
 		    "%s: device(handle = 0x%04x) is removed, device(LUN) reset is not issued\n",
 		    mrioc->name, dev_handle);
-		if (!cmd_priv->in_lld_scope || cmd_priv->host_tag == MPI3MR_HOSTTAG_INVALID)
-			retval = SUCCESS;
-		else
-			retval = FAILED;
+		retval = FAILED;
 		goto out;
 	}
-	sdev_printk(KERN_INFO, scmd->device,
+	sdev_printk(KERN_INFO, sdev,
 	    "Device(lun) Reset is issued to handle(0x%04x)\n", dev_handle);
 
 	ret = mpi3mr_issue_tm(mrioc,
 	    MPI3_SCSITASKMGMT_TASKTYPE_LOGICAL_UNIT_RESET, dev_handle,
 	    sdev_priv_data->lun_id, MPI3MR_HOSTTAG_BLK_TMS,
-	    MPI3MR_RESETTM_TIMEOUT, &mrioc->host_tm_cmds, &resp_code, scmd);
+	    MPI3MR_RESETTM_TIMEOUT, &mrioc->host_tm_cmds, &resp_code, NULL);
 
 	if (ret)
 		goto out;
 
 	if (sdev_priv_data->pend_count) {
-		sdev_printk(KERN_INFO, scmd->device,
+		sdev_printk(KERN_INFO, sdev,
 		    "%s: device has %d pending commands, device(LUN) reset is failed\n",
 		    mrioc->name, sdev_priv_data->pend_count);
 		goto out;
 	}
 	retval = SUCCESS;
 out:
-	sdev_printk(KERN_INFO, scmd->device,
-	    "%s: device(LUN) reset is %s for scmd(%p)\n", mrioc->name,
-	    ((retval == SUCCESS) ? "SUCCESS" : "FAILED"), scmd);
+	sdev_printk(KERN_INFO, sdev,
+	    "%s: device(LUN) reset is %s\n", mrioc->name,
+	    ((retval == SUCCESS) ? "SUCCESS" : "FAILED"));
 
 	return retval;
 }

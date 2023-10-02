@@ -297,8 +297,6 @@ static        int        nsp_show_info  (struct seq_file *m,
 static int nsp_queuecommand(struct Scsi_Host *h, struct scsi_cmnd *SCpnt);
 
 /* Error handler */
-/*static int nsp_eh_abort       (struct scsi_cmnd *SCpnt);*/
-/*static int nsp_eh_device_reset(struct scsi_cmnd *SCpnt);*/
 static int nsp_eh_bus_reset    (struct Scsi_Host *host, unsigned int channel);
 static int nsp_eh_host_reset   (struct Scsi_Host *host);
 static int nsp_bus_reset       (nsp_hw_data *data);

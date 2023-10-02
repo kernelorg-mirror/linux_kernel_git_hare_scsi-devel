@@ -7293,11 +7293,11 @@ int ufshcd_advanced_rpmb_req_handler(struct ufs_hba *hba, struct utp_upiu_req *r
 
 /**
  * ufshcd_eh_device_reset_handler() - Reset a single logical unit.
- * @cmd: SCSI command pointer
+ * @sdev: SCSI device pointer
  *
  * Return: SUCCESS or FAILED.
  */
-static int ufshcd_eh_device_reset_handler(struct scsi_cmnd *cmd)
+static int ufshcd_eh_device_reset_handler(struct scsi_device *sdev)
 {
 	unsigned long flags, pending_reqs = 0, not_cleared = 0;
 	struct Scsi_Host *host;
@@ -7308,10 +7308,10 @@ static int ufshcd_eh_device_reset_handler(struct scsi_cmnd *cmd)
 	int err;
 	u8 resp = 0xF, lun;
 
-	host = cmd->device->host;
+	host = sdev->host;
 	hba = shost_priv(host);
 
-	lun = ufshcd_scsi_to_upiu_lun(cmd->device->lun);
+	lun = ufshcd_scsi_to_upiu_lun(sdev->lun);
 	err = ufshcd_issue_tm_cmd(hba, lun, 0, UFS_LOGICAL_RESET, &resp);
 	if (err || resp != UPIU_TASK_MANAGEMENT_FUNC_COMPL) {
 		if (!err)

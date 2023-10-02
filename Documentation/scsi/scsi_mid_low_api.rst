@@ -778,7 +778,7 @@ Details::
 
     /**
     *      eh_device_reset_handler - issue SCSI device reset
-    *      @scp: identifies SCSI device to be reset
+    *      @sdev: identifies SCSI device to be reset
     *
     *      Returns SUCCESS if command aborted else FAILED
     *
@@ -791,7 +791,7 @@ Details::
     *
     *      Optionally defined in: LLD
     **/
-	int eh_device_reset_handler(struct scsi_cmnd * scp)
+	int eh_device_reset_handler(struct scsi_device * sdev)
 
 
     /**

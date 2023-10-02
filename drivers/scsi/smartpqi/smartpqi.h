@@ -1093,7 +1093,6 @@ struct pqi_tmf_work {
 	struct pqi_ctrl_info *ctrl_info;
 	struct pqi_scsi_dev *device;
 	u8	lun;
-	u8	scsi_opcode;
 };
 
 struct pqi_scsi_dev {
