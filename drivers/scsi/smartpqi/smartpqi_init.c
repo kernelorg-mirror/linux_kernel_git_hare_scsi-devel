@@ -6351,15 +6351,15 @@ static int pqi_device_reset(struct pqi_ctrl_info *ctrl_info, struct pqi_scsi_dev
 	return rc;
 }
 
-static int pqi_device_reset_handler(struct pqi_ctrl_info *ctrl_info, struct pqi_scsi_dev *device, u8 lun, struct scsi_cmnd *scmd, u8 scsi_opcode)
+static int pqi_device_reset_handler(struct pqi_ctrl_info *ctrl_info, struct pqi_scsi_dev *device, u8 lun)
 {
 	int rc;
 
 	mutex_lock(&ctrl_info->lun_reset_mutex);
 
 	dev_err(&ctrl_info->pci_dev->dev,
-		"resetting scsi %d:%d:%d:%u SCSI cmd at %p due to cmd opcode 0x%02x\n",
-		ctrl_info->scsi_host->host_no, device->bus, device->target, lun, scmd, scsi_opcode);
+		"resetting scsi %d:%d:%d:%u\n",
+		ctrl_info->scsi_host->host_no, device->bus, device->target, lun);
 
 	pqi_check_ctrl_health(ctrl_info);
 	if (pqi_ctrl_offline(ctrl_info))
@@ -6377,19 +6377,17 @@ static int pqi_device_reset_handler(struct pqi_ctrl_info *ctrl_info, struct pqi_
 	return rc;
 }
 
-static int pqi_eh_device_reset_handler(struct scsi_cmnd *scmd)
+static int pqi_eh_device_reset_handler(struct scsi_device *sdev)
 {
 	struct Scsi_Host *shost;
 	struct pqi_ctrl_info *ctrl_info;
 	struct pqi_scsi_dev *device;
-	u8 scsi_opcode;
 
-	shost = scmd->device->host;
+	shost = sdev->host;
 	ctrl_info = shost_to_hba(shost);
-	device = scmd->device->hostdata;
-	scsi_opcode = scmd->cmd_len > 0 ? scmd->cmnd[0] : 0xff;
+	device = sdev->hostdata;
 
-	return pqi_device_reset_handler(ctrl_info, device, (u8)scmd->device->lun, scmd, scsi_opcode);
+	return pqi_device_reset_handler(ctrl_info, device, (u8)sdev->lun);
 }
 
 static void pqi_tmf_worker(struct work_struct *work)
@@ -6400,7 +6398,7 @@ static void pqi_tmf_worker(struct work_struct *work)
 	tmf_work = container_of(work, struct pqi_tmf_work, work_struct);
 	scmd = (struct scsi_cmnd *)xchg(&tmf_work->scmd, NULL);
 
-	pqi_device_reset_handler(tmf_work->ctrl_info, tmf_work->device, tmf_work->lun, scmd, tmf_work->scsi_opcode);
+	pqi_device_reset_handler(tmf_work->ctrl_info, tmf_work->device, tmf_work->lun);
 }
 
 static int pqi_eh_abort_handler(struct scsi_cmnd *scmd)
@@ -6433,7 +6431,6 @@ static int pqi_eh_abort_handler(struct scsi_cmnd *scmd)
 		tmf_work->ctrl_info = ctrl_info;
 		tmf_work->device = device;
 		tmf_work->lun = (u8)scmd->device->lun;
-		tmf_work->scsi_opcode = scmd->cmd_len > 0 ? scmd->cmnd[0] : 0xff;
 		schedule_work(&tmf_work->work_struct);
 	}
 

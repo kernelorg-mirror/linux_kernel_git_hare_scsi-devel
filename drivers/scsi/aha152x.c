@@ -1068,12 +1068,12 @@ static int aha152x_abort(struct scsi_cmnd *SCpnt)
  * Reset a device
  *
  */
-static int aha152x_device_reset(struct scsi_cmnd * SCpnt)
+static int aha152x_device_reset(struct scsi_device * sdev)
 {
-	struct scsi_device *sdev = SCpnt->device;
 	struct Scsi_Host *shpnt = sdev->host;
+	struct scsi_cmnd *SCpnt;
 	DECLARE_COMPLETION(done);
-	int ret, issued, disconnected;
+	int ret, issued, disconnected = 0;
 	unsigned char old_cmd_len;
 	unsigned long flags;
 	unsigned long timeleft;

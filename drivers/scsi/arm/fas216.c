@@ -2474,16 +2474,15 @@ int fas216_eh_abort(struct scsi_cmnd *SCpnt)
 
 /**
  * fas216_eh_device_reset - Reset the device associated with this command
- * @SCpnt: command specifing device to reset
+ * @sdev: device to reset
  *
  * Reset the device associated with this command.
  * Returns: FAILED if unable to reset.
  * Notes: We won't be re-entered, so we'll only have one device
  * reset on the go at one time.
  */
-int fas216_eh_device_reset(struct scsi_cmnd *SCpnt)
+int fas216_eh_device_reset(struct scsi_device *sdev)
 {
-	struct scsi_device *sdev = SCpnt->device;
 	FAS216_Info *info = (FAS216_Info *)sdev->host->hostdata;
 	unsigned long flags;
 	int i, res = FAILED, target = sdev->id;
