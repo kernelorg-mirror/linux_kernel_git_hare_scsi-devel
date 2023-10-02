@@ -6160,7 +6160,7 @@ lpfc_target_reset_handler(struct scsi_cmnd *cmnd)
 
 /**
  * lpfc_host_reset_handler - scsi_host_template eh_host_reset_handler entry pt
- * @cmnd: Pointer to scsi_cmnd data structure.
+ * @shost: Pointer to Scsi_Host data structure.
  *
  * This routine does host reset to the adaptor port. It brings the HBA
  * offline, performs a board restart, and then brings the board back online.
@@ -6175,9 +6175,8 @@ lpfc_target_reset_handler(struct scsi_cmnd *cmnd)
  *  0x2002 - Success
  **/
 static int
-lpfc_host_reset_handler(struct scsi_cmnd *cmnd)
+lpfc_host_reset_handler(struct Scsi_Host *shost)
 {
-	struct Scsi_Host *shost = cmnd->device->host;
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;
 	struct lpfc_hba *phba = vport->phba;
 	int rc, ret = SUCCESS;

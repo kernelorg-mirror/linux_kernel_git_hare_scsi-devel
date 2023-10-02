@@ -2890,21 +2890,18 @@ kill_hba_and_failed:
 
 /**
  * megasas_generic_reset -	Generic reset routine
- * @scmd:			Mid-layer SCSI command
+ * @shost:			Mid-layer SCSI host
  *
- * This routine implements a generic reset handler for device, bus and host
- * reset requests. Device, bus and host specific reset handlers can use this
+ * This routine implements a generic reset handler for host
+ * reset requests. Host specific reset handlers can use this
  * function after they do their specific tasks.
  */
-static int megasas_generic_reset(struct scsi_cmnd *scmd)
+static int megasas_generic_reset(struct Scsi_Host *shost)
 {
 	int ret_val;
-	struct megasas_instance *instance;
+	struct megasas_instance *instance = shost_priv(shost);
 
-	instance = (struct megasas_instance *)scmd->device->host->hostdata;
-
-	scmd_printk(KERN_NOTICE, scmd, "megasas: RESET cmd=%x retries=%x\n",
-		 scmd->cmnd[0], scmd->retries);
+	shost_printk(KERN_NOTICE, shost, "megasas: RESET\n");
 
 	if (atomic_read(&instance->adprecovery) == MEGASAS_HW_CRITICAL_ERROR) {
 		dev_err(&instance->pdev->dev, "cannot recover from previous reset failures\n");
@@ -3054,33 +3051,30 @@ megasas_dump_sys_regs(void __iomem *reg_set, char *buf)
 
 /**
  * megasas_reset_bus_host -	Bus & host reset handler entry point
- * @scmd:			Mid-layer SCSI command
+ * @shost:			Mid-layer SCSI host
  */
-static int megasas_reset_bus_host(struct scsi_cmnd *scmd)
+static int megasas_reset_bus_host(struct Scsi_Host *shost)
 {
 	int ret;
-	struct megasas_instance *instance;
+	struct megasas_instance *instance = shost_priv(shost);
 
-	instance = (struct megasas_instance *)scmd->device->host->hostdata;
-
-	scmd_printk(KERN_INFO, scmd,
+	shost_printk(KERN_INFO, shost,
 		"OCR is requested due to IO timeout!!\n");
 
-	scmd_printk(KERN_INFO, scmd,
-		"SCSI host state: %d  SCSI host busy: %d  FW outstanding: %d\n",
-		scmd->device->host->shost_state,
-		scsi_host_busy(scmd->device->host),
+	shost_printk(KERN_INFO, shost,
+		"Controller reset is requested due to IO timeout\n"
+		"SCSI host state: %d\t"
+		" SCSI host busy: %d\t FW outstanding: %d\n",
+		shost->shost_state,
+		scsi_host_busy(shost),
 		atomic_read(&instance->fw_outstanding));
 	/*
 	 * First wait for all commands to complete
 	 */
-	if (instance->adapter_type == MFI_SERIES) {
-		ret = megasas_generic_reset(scmd);
-	} else {
-		megasas_dump_fusion_io(scmd);
-		ret = megasas_reset_fusion(scmd->device->host,
-				SCSIIO_TIMEOUT_OCR);
-	}
+	if (instance->adapter_type == MFI_SERIES)
+		ret = megasas_generic_reset(shost);
+	else
+		ret = megasas_reset_fusion(shost, SCSIIO_TIMEOUT_OCR);
 
 	return ret;
 }

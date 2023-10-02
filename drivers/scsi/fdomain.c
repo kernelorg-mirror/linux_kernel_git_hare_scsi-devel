@@ -456,9 +456,8 @@ static int fdomain_abort(struct scsi_cmnd *cmd)
 	return SUCCESS;
 }
 
-static int fdomain_host_reset(struct scsi_cmnd *cmd)
+static int fdomain_host_reset(struct Scsi_Host *sh)
 {
-	struct Scsi_Host *sh = cmd->device->host;
 	struct fdomain *fd = shost_priv(sh);
 	unsigned long flags;
 

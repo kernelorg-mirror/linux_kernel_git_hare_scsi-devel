@@ -371,10 +371,9 @@ static int zfcp_scsi_eh_target_reset_handler(struct scsi_cmnd *scpnt)
 	return ret;
 }
 
-static int zfcp_scsi_eh_host_reset_handler(struct scsi_cmnd *scpnt)
+static int zfcp_scsi_eh_host_reset_handler(struct Scsi_Host *host)
 {
-	struct zfcp_scsi_dev *zfcp_sdev = sdev_to_zfcp(scpnt->device);
-	struct zfcp_adapter *adapter = zfcp_sdev->port->adapter;
+	struct zfcp_adapter *adapter = (struct zfcp_adapter *)host->hostdata[0];
 	int ret = FAST_IO_FAIL;
 
 	if (!(adapter->connection_features & FSF_FEATURE_NPIV_MODE)) {

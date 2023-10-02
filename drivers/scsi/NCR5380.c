@@ -2374,14 +2374,13 @@ static void bus_reset_cleanup(struct Scsi_Host *instance)
 
 /**
  * NCR5380_host_reset - reset the SCSI host
- * @cmd: SCSI command undergoing EH
+ * @instance: SCSI host undergoing EH
  *
  * Returns SUCCESS
  */
 
-static int NCR5380_host_reset(struct scsi_cmnd *cmd)
+static int NCR5380_host_reset(struct Scsi_Host *instance)
 {
-	struct Scsi_Host *instance = cmd->device->host;
 	struct NCR5380_hostdata *hostdata = shost_priv(instance);
 	unsigned long flags;
 	struct NCR5380_cmd *ncmd;

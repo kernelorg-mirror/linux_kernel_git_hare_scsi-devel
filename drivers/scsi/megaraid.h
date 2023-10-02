@@ -973,7 +973,7 @@ static irqreturn_t megaraid_isr_iomapped(int, void *);
 static void mega_free_scb(adapter_t *, scb_t *);
 
 static int megaraid_abort(struct scsi_cmnd *);
-static int megaraid_reset(struct scsi_cmnd *);
+static int megaraid_reset(struct Scsi_Host *);
 static int megaraid_abort_and_reset(adapter_t *, struct scsi_cmnd *, int);
 static int megaraid_biosparam(struct scsi_device *, struct block_device *,
 		sector_t, int []);

@@ -1087,14 +1087,12 @@ static int aac_eh_bus_reset(struct scsi_cmnd* cmd)
 
 /*
  *	aac_eh_host_reset	- Host reset command handling
- *	@scsi_cmd:	SCSI command block causing the reset
+ *	@host:	SCSI host to be reset
  *
  */
-static int aac_eh_host_reset(struct scsi_cmnd *cmd)
+static int aac_eh_host_reset(struct Scsi_Host *host)
 {
-	struct scsi_device * dev = cmd->device;
-	struct Scsi_Host * host = dev->host;
-	struct aac_dev * aac = (struct aac_dev *)host->hostdata;
+	struct aac_dev * aac = shost_priv(host);
 	int ret = FAILED;
 	__le32 supported_options2 = 0;
 	bool is_mu_reset;

@@ -1733,12 +1733,12 @@ static int ibmvscsi_eh_device_reset_handler(struct scsi_cmnd *cmd)
 
 /**
  * ibmvscsi_eh_host_reset_handler - Reset the connection to the server
- * @cmd:	struct scsi_cmnd having problems
+ * @shost:	struct Scsi_Host having problems
 */
-static int ibmvscsi_eh_host_reset_handler(struct scsi_cmnd *cmd)
+static int ibmvscsi_eh_host_reset_handler(struct Scsi_Host *shost)
 {
 	unsigned long wait_switch = 0;
-	struct ibmvscsi_host_data *hostdata = shost_priv(cmd->device->host);
+	struct ibmvscsi_host_data *hostdata = shost_priv(shost);
 
 	dev_err(hostdata->dev, "Resetting connection due to error recovery\n");
 

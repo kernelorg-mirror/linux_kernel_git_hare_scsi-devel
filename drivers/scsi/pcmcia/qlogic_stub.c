@@ -270,8 +270,8 @@ static int qlogic_resume(struct pcmcia_device *link)
 		outb(0x24, link->resource[0]->start + 0x9);
 		outb(0x04, link->resource[0]->start + 0xd);
 	}
-	/* Ugggglllyyyy!!! */
-	qlogicfas408_host_reset(NULL);
+
+	qlogicfas408_host_reset(info->host);
 
 	return 0;
 }

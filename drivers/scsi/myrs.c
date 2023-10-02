@@ -1529,9 +1529,8 @@ ATTRIBUTE_GROUPS(myrs_shost);
 /*
  * SCSI midlayer interface
  */
-static int myrs_host_reset(struct scsi_cmnd *scmd)
+static int myrs_host_reset(struct Scsi_Host *shost)
 {
-	struct Scsi_Host *shost = scmd->device->host;
 	struct myrs_hba *cs = shost_priv(shost);
 
 	cs->reset(cs->io_base);

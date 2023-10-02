@@ -777,9 +777,9 @@ Details::
 
     /**
     *      eh_host_reset_handler - reset host (host bus adapter)
-    *      @scp: SCSI host that contains this device should be reset
+    *      @shp: SCSI host that should be reset
     *
-    *      Returns SUCCESS if command aborted else FAILED
+    *      Returns SUCCESS if host has been reset else FAILED
     *
     *      Locks: None held
     *
@@ -794,7 +794,7 @@ Details::
     *
     *      Optionally defined in: LLD
     **/
-	int eh_host_reset_handler(struct scsi_cmnd * scp)
+	int eh_host_reset_handler(struct Scsi_Host * shp)
 
 
     /**

@@ -1252,9 +1252,8 @@ static void myrb_cleanup(struct myrb_hba *cb)
 	scsi_host_put(cb->host);
 }
 
-static int myrb_host_reset(struct scsi_cmnd *scmd)
+static int myrb_host_reset(struct Scsi_Host *shost)
 {
-	struct Scsi_Host *shost = scmd->device->host;
 	struct myrb_hba *cb = shost_priv(shost);
 
 	cb->reset(cb->io_base);

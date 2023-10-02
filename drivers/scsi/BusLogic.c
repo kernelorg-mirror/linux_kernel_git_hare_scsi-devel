@@ -2852,21 +2852,21 @@ static bool blogic_write_outbox(struct blogic_adapter *adapter,
 
 /* Error Handling (EH) support */
 
-static int blogic_hostreset(struct scsi_cmnd *SCpnt)
+static int blogic_hostreset(struct Scsi_Host *shost)
 {
-	struct blogic_adapter *adapter =
-		(struct blogic_adapter *) SCpnt->device->host->hostdata;
+	struct blogic_adapter *adapter = shost_priv(shost);
+	int tgt, rc;
 
-	unsigned int id = SCpnt->device->id;
-	struct blogic_tgt_stats *stats = &adapter->tgt_stats[id];
-	int rc;
-
-	spin_lock_irq(SCpnt->device->host->host_lock);
-
-	blogic_inc_count(&stats->adapter_reset_req);
-
+	spin_lock_irq(shost->host_lock);
+	for (tgt = 0; tgt < adapter->maxdev; tgt++) {
+		struct blogic_tgt_flags *tgt_flags = &adapter->tgt_flags[tgt];
+		struct blogic_tgt_stats *tgt_stats = &adapter->tgt_stats[tgt];
+		if (!tgt_flags->tgt_exists)
+			continue;
+		blogic_inc_count(&tgt_stats->adapter_reset_req);
+	}
 	rc = blogic_resetadapter(adapter, false);
-	spin_unlock_irq(SCpnt->device->host->host_lock);
+	spin_unlock_irq(shost->host_lock);
 	return rc;
 }
 

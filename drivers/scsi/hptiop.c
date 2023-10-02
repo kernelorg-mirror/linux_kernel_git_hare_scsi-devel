@@ -1088,12 +1088,12 @@ static int hptiop_reset_hba(struct hptiop_hba *hba)
 	return 0;
 }
 
-static int hptiop_reset(struct scsi_cmnd *scp)
+static int hptiop_reset(struct Scsi_Host *host)
 {
-	struct hptiop_hba * hba = (struct hptiop_hba *)scp->device->host->hostdata;
+	struct hptiop_hba * hba = shost_priv(host);
 
 	printk(KERN_WARNING "hptiop_reset(%d/%d/%d)\n",
-	       scp->device->host->host_no, -1, -1);
+	       host->host_no, -1, -1);
 
 	return hptiop_reset_hba(hba)? FAILED : SUCCESS;
 }

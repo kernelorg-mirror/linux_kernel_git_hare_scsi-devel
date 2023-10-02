@@ -3049,13 +3049,13 @@ static int ibmvfc_eh_target_reset_handler(struct scsi_cmnd *cmd)
 
 /**
  * ibmvfc_eh_host_reset_handler - Reset the connection to the server
- * @cmd:	struct scsi_cmnd having problems
+ * @shost:	struct Scsi_Host having problems
  *
  **/
-static int ibmvfc_eh_host_reset_handler(struct scsi_cmnd *cmd)
+static int ibmvfc_eh_host_reset_handler(struct Scsi_Host *shost)
 {
 	int rc;
-	struct ibmvfc_host *vhost = shost_priv(cmd->device->host);
+	struct ibmvfc_host *vhost = shost_priv(shost);
 
 	dev_err(vhost->dev, "Resetting connection due to error recovery\n");
 	rc = ibmvfc_issue_fc_host_lip(vhost->host);
