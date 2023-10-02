@@ -1876,13 +1876,11 @@ megaraid_abort(struct scsi_cmnd *cmd)
 
 
 static int
-megaraid_reset(struct scsi_cmnd *cmd)
+megaraid_reset(struct Scsi_Host *shost)
 {
-	adapter_t	*adapter;
+	adapter_t	*adapter = shost_priv(shost);
 	megacmd_t	mc;
 	int		rval;
-
-	adapter = (adapter_t *)cmd->device->host->hostdata;
 
 #if MEGA_HAVE_CLUSTERING
 	mc.cmd = MEGA_CLUSTER_CMD;

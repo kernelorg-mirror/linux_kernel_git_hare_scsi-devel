@@ -30,9 +30,8 @@ int qedi_recover_all_conns(struct qedi_ctx *qedi)
 	return SUCCESS;
 }
 
-static int qedi_eh_host_reset(struct scsi_cmnd *cmd)
+static int qedi_eh_host_reset(struct Scsi_Host *shost)
 {
-	struct Scsi_Host *shost = cmd->device->host;
 	struct qedi_ctx *qedi;
 
 	qedi = iscsi_host_priv(shost);

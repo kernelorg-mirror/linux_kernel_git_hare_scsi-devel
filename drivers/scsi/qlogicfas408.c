@@ -525,20 +525,18 @@ int qlogicfas408_abort(struct scsi_cmnd *cmd)
 
 /*
  *	Reset SCSI bus
- *	FIXME: This function is invoked with cmd = NULL directly by
- *	the PCMCIA qlogic_stub code. This wants fixing
  */
 
-int qlogicfas408_host_reset(struct scsi_cmnd *cmd)
+int qlogicfas408_host_reset(struct Scsi_Host *host)
 {
-	struct qlogicfas408_priv *priv = get_priv_by_cmd(cmd);
+	struct qlogicfas408_priv *priv = get_priv_by_host(host);
 	unsigned long flags;
 
 	priv->qabort = 2;
 
-	spin_lock_irqsave(cmd->device->host->host_lock, flags);
+	spin_lock_irqsave(host->host_lock, flags);
 	ql_zap(priv);
-	spin_unlock_irqrestore(cmd->device->host->host_lock, flags);
+	spin_unlock_irqrestore(host->host_lock, flags);
 
 	return SUCCESS;
 }

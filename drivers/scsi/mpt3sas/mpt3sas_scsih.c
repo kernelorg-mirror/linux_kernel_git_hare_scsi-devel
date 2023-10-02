@@ -3520,18 +3520,17 @@ scsih_target_reset(struct scsi_cmnd *scmd)
 
 /**
  * scsih_host_reset - eh threads main host reset routine
- * @scmd: pointer to scsi command object
+ * @shost: pointer to scsi host object
  *
- * Return: SUCCESS if command aborted else FAILED
+ * Return: SUCCESS if host reset succeeded else FAILED
  */
 static int
-scsih_host_reset(struct scsi_cmnd *scmd)
+scsih_host_reset(struct Scsi_Host *shost)
 {
-	struct MPT3SAS_ADAPTER *ioc = shost_priv(scmd->device->host);
+	struct MPT3SAS_ADAPTER *ioc = shost_priv(shost);
 	int r, retval;
 
-	ioc_info(ioc, "attempting host reset! scmd(0x%p)\n", scmd);
-	scsi_print_command(scmd);
+	ioc_info(ioc, "attempting host reset\n");
 
 	if (ioc->is_driver_loading || ioc->remove_host) {
 		ioc_info(ioc, "Blocking the host reset\n");
@@ -3542,8 +3541,8 @@ scsih_host_reset(struct scsi_cmnd *scmd)
 	retval = mpt3sas_base_hard_reset_handler(ioc, FORCE_BIG_HAMMER);
 	r = (retval < 0) ? FAILED : SUCCESS;
 out:
-	ioc_info(ioc, "host reset: %s scmd(0x%p)\n",
-		 r == SUCCESS ? "SUCCESS" : "FAILED", scmd);
+	ioc_info(ioc, "host reset: %s\n",
+		 r == SUCCESS ? "SUCCESS" : "FAILED");
 
 	return r;
 }

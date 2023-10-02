@@ -920,9 +920,8 @@ static int aha1542_dev_reset(struct scsi_cmnd *cmd)
 	return SUCCESS;
 }
 
-static int aha1542_reset(struct scsi_cmnd *cmd, u8 reset_cmd)
+static int aha1542_reset(struct Scsi_Host *sh, u8 reset_cmd)
 {
-	struct Scsi_Host *sh = cmd->device->host;
 	struct aha1542_hostdata *aha1542 = shost_priv(sh);
 	unsigned long flags;
 	int i;
@@ -934,9 +933,9 @@ static int aha1542_reset(struct scsi_cmnd *cmd, u8 reset_cmd)
 	 * we do this?  Try this first, and we can add that later
 	 * if it turns out to be useful.
 	 */
-	outb(reset_cmd, CONTROL(cmd->device->host->io_port));
+	outb(reset_cmd, CONTROL(sh->io_port));
 
-	if (!wait_mask(STATUS(cmd->device->host->io_port),
+	if (!wait_mask(STATUS(sh->io_port),
 	     STATMASK, IDLE, STST | DIAGF | INVDCMD | DF | CDF, 0)) {
 		spin_unlock_irqrestore(sh->host_lock, flags);
 		return FAILED;
@@ -947,7 +946,7 @@ static int aha1542_reset(struct scsi_cmnd *cmd, u8 reset_cmd)
 	 * us again after host reset.
 	 */
 	if (reset_cmd & HRST)
-		setup_mailboxes(cmd->device->host);
+		setup_mailboxes(sh);
 
 	/*
 	 * Now try to pick up the pieces.  For all pending commands,
@@ -955,7 +954,8 @@ static int aha1542_reset(struct scsi_cmnd *cmd, u8 reset_cmd)
 	 * out.  We do not try and restart any commands or anything -
 	 * the strategy handler takes care of that crap.
 	 */
-	shost_printk(KERN_WARNING, cmd->device->host, "Sent BUS RESET to scsi host %d\n", cmd->device->host->host_no);
+	shost_printk(KERN_WARNING, sh, "Sent BUS RESET to scsi host %d\n",
+		     sh->host_no);
 
 	for (i = 0; i < AHA1542_MAILBOXES; i++) {
 		if (aha1542->int_cmds[i] != NULL) {
@@ -983,12 +983,12 @@ static int aha1542_reset(struct scsi_cmnd *cmd, u8 reset_cmd)
 
 static int aha1542_bus_reset(struct scsi_cmnd *cmd)
 {
-	return aha1542_reset(cmd, SCRST);
+	return aha1542_reset(cmd->device->host, SCRST);
 }
 
-static int aha1542_host_reset(struct scsi_cmnd *cmd)
+static int aha1542_host_reset(struct Scsi_Host *sh)
 {
-	return aha1542_reset(cmd, HRST | SCRST);
+	return aha1542_reset(sh, HRST | SCRST);
 }
 
 static int aha1542_biosparam(struct scsi_device *sdev,

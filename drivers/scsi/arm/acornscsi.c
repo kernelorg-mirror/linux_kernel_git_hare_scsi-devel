@@ -2631,15 +2631,15 @@ int acornscsi_abort(struct scsi_cmnd *SCpnt)
 /*
  * Prototype: int acornscsi_reset(struct scsi_cmnd *SCpnt)
  * Purpose  : reset a command on this host/reset this host
- * Params   : SCpnt  - command causing reset
+ * Params   : shost  - host to be reset
  * Returns  : one of SCSI_RESET_ macros
  */
-int acornscsi_host_reset(struct scsi_cmnd *SCpnt)
+int acornscsi_host_reset(struct Scsi_Host *shost)
 {
-	AS_Host *host = (AS_Host *)SCpnt->device->host->hostdata;
+	AS_Host *host = shost_priv(shost);
 	struct scsi_cmnd *SCptr;
     
-    host->stats.resets += 1;
+	host->stats.resets += 1;
 
 #if (DEBUG & DEBUG_RESET)
     {

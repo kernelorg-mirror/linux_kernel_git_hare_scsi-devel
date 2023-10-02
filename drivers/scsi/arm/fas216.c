@@ -2649,16 +2649,16 @@ static void fas216_init_chip(FAS216_Info *info)
 }
 
 /**
- * fas216_eh_host_reset - Reset the host associated with this command
- * @SCpnt: command specifing host to reset
+ * fas216_eh_host_reset - Reset the host
+ * @shost: host to reset
  *
- * Reset the host associated with this command.
+ * Reset the specified host.
  * Returns: FAILED if unable to reset.
  * Notes: io_request_lock is taken, and irqs are disabled
  */
-int fas216_eh_host_reset(struct scsi_cmnd *SCpnt)
+int fas216_eh_host_reset(struct Scsi_Host *shost)
 {
-	FAS216_Info *info = (FAS216_Info *)SCpnt->device->host->hostdata;
+	FAS216_Info *info = shost_priv(shost);
 
 	spin_lock_irq(info->host->host_lock);
 

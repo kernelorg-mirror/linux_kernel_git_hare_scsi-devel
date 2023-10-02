@@ -1438,14 +1438,11 @@ static int stex_do_reset(struct st_hba *hba)
 	return -1;
 }
 
-static int stex_reset(struct scsi_cmnd *cmd)
+static int stex_reset(struct Scsi_Host *shost)
 {
-	struct st_hba *hba;
+	struct st_hba *hba = shost_priv(shost);
 
-	hba = (struct st_hba *) &cmd->device->host->hostdata[0];
-
-	shost_printk(KERN_INFO, cmd->device->host,
-		     "resetting host\n");
+	shost_printk(KERN_INFO, shost, "resetting host\n");
 
 	return stex_do_reset(hba) ? FAILED : SUCCESS;
 }

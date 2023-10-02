@@ -229,7 +229,7 @@ module_param(ips, charp, 0);
  * Function prototypes
  */
 static int ips_eh_abort(struct scsi_cmnd *);
-static int ips_eh_reset(struct scsi_cmnd *);
+static int ips_eh_reset(struct Scsi_Host *);
 static int ips_queue(struct Scsi_Host *, struct scsi_cmnd *);
 static const char *ips_info(struct Scsi_Host *);
 static irqreturn_t do_ipsintr(int, void *);
@@ -829,11 +829,11 @@ int ips_eh_abort(struct scsi_cmnd *SC)
 /* NOTE: this routine is called under the io_request_lock spinlock          */
 /*                                                                          */
 /****************************************************************************/
-static int __ips_eh_reset(struct scsi_cmnd *SC)
+static int __ips_eh_reset(struct Scsi_Host *shost)
 {
 	int ret;
 	int i;
-	ips_ha_t *ha;
+	ips_ha_t *ha = shost_priv(shost);
 	ips_scb_t *scb;
 
 	METHOD_TRACE("ips_eh_reset", 1);
@@ -841,20 +841,6 @@ static int __ips_eh_reset(struct scsi_cmnd *SC)
 #ifdef NO_IPS_RESET
 	return (FAILED);
 #else
-
-	if (!SC) {
-		DEBUG(1, "Reset called with NULL scsi command");
-
-		return (FAILED);
-	}
-
-	ha = (ips_ha_t *) SC->device->host->hostdata;
-
-	if (!ha) {
-		DEBUG(1, "Reset called with NULL ha struct");
-
-		return (FAILED);
-	}
 
 	if (!ha->active)
 		return (FAILED);
@@ -994,13 +980,13 @@ static int __ips_eh_reset(struct scsi_cmnd *SC)
 
 }
 
-static int ips_eh_reset(struct scsi_cmnd *SC)
+static int ips_eh_reset(struct Scsi_Host *shost)
 {
 	int rc;
 
-	spin_lock_irq(SC->device->host->host_lock);
-	rc = __ips_eh_reset(SC);
-	spin_unlock_irq(SC->device->host->host_lock);
+	spin_lock_irq(shost->host_lock);
+	rc = __ips_eh_reset(shost);
+	spin_unlock_irq(shost->host_lock);
 
 	return rc;
 }
@@ -1078,7 +1064,7 @@ static int ips_queue_lck(struct scsi_cmnd *SC)
 				return (0);
 			}
 			ha->ioctl_reset = 1;	/* This reset request is from an IOCTL */
-			__ips_eh_reset(SC);
+			__ips_eh_reset(SC->device->host);
 			SC->result = DID_OK << 16;
 			scsi_done(SC);
 			return (0);

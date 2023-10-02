@@ -191,7 +191,7 @@ static int	   nsp32_release     (struct Scsi_Host *);
 
 /* SCSI error handler */
 static int	   nsp32_eh_abort     (struct scsi_cmnd *);
-static int	   nsp32_eh_host_reset(struct scsi_cmnd *);
+static int	   nsp32_eh_host_reset(struct Scsi_Host *);
 
 /* generate SCSI message */
 static void nsp32_build_identify(struct scsi_cmnd *);
@@ -2876,23 +2876,21 @@ static void nsp32_do_bus_reset(nsp32_hw_data *data)
 	data->CurrentSC = NULL;
 }
 
-static int nsp32_eh_host_reset(struct scsi_cmnd *SCpnt)
+static int nsp32_eh_host_reset(struct Scsi_Host *host)
 {
-	struct Scsi_Host *host = SCpnt->device->host;
-	unsigned int      base = SCpnt->device->host->io_port;
-	nsp32_hw_data    *data = (nsp32_hw_data *)host->hostdata;
+	unsigned int      base = host->io_port;
+	nsp32_hw_data    *data = shost_priv(host);
 
 	nsp32_msg(KERN_INFO, "Host Reset");
-	nsp32_dbg(NSP32_DEBUG_BUSRESET, "SCpnt=0x%x", SCpnt);
 
-	spin_lock_irq(SCpnt->device->host->host_lock);
+	spin_lock_irq(host->host_lock);
 
 	nsp32hw_init(data);
 	nsp32_write2(base, IRQ_CONTROL, IRQ_CONTROL_ALL_IRQ_MASK);
 	nsp32_do_bus_reset(data);
 	nsp32_write2(base, IRQ_CONTROL, 0);
 
-	spin_unlock_irq(SCpnt->device->host->host_lock);
+	spin_unlock_irq(host->host_lock);
 	return SUCCESS;	/* Host reset is succeeded at any time. */
 }
 
