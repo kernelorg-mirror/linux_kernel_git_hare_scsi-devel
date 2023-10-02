@@ -2625,20 +2625,21 @@ static DEF_SCSI_QCMD(i91u_queuecommand)
 
 /**
  *	i91u_bus_reset		-	reset the SCSI bus
- *	@cmnd: Command block we want to trigger the reset for
+ *	@shost: SCSI host to be reset
+ *	@channel: Bus number to be reset
  *
  *	Initiate a SCSI bus reset sequence
  */
 
-static int i91u_bus_reset(struct scsi_cmnd * cmnd)
+static int i91u_bus_reset(struct Scsi_Host * shost, int channel)
 {
 	struct initio_host *host;
 
-	host = (struct initio_host *) cmnd->device->host->hostdata;
+	host = (struct initio_host *) shost->hostdata;
 
-	spin_lock_irq(cmnd->device->host->host_lock);
+	spin_lock_irq(shost->host_lock);
 	initio_reset_scsi(host, 0);
-	spin_unlock_irq(cmnd->device->host->host_lock);
+	spin_unlock_irq(shost->host_lock);
 
 	return SUCCESS;
 }

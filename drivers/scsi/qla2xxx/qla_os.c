@@ -1588,7 +1588,7 @@ eh_reset_failed:
 *    commands.
 *
 * Input:
-*    cmd = Linux SCSI command packet of the command that cause the
+*    host = Linux SCSI command packet of the command that cause the
 *          bus reset.
 *
 * Returns:
@@ -1596,12 +1596,10 @@ eh_reset_failed:
 *
 **************************************************************************/
 static int
-qla2xxx_eh_bus_reset(struct scsi_cmnd *cmd)
+qla2xxx_eh_bus_reset(struct Scsi_Host *shost, int channel)
 {
-	scsi_qla_host_t *vha = shost_priv(cmd->device->host);
+	scsi_qla_host_t *vha = shost_priv(shost);
 	int ret = FAILED;
-	unsigned int id;
-	uint64_t lun;
 	struct qla_hw_data *ha = vha->hw;
 
 	if (qla2x00_isp_reg_stat(ha)) {
@@ -1611,14 +1609,11 @@ qla2xxx_eh_bus_reset(struct scsi_cmnd *cmd)
 		return FAILED;
 	}
 
-	id = cmd->device->id;
-	lun = cmd->device->lun;
-
 	if (qla2x00_chip_is_down(vha))
 		return ret;
 
 	ql_log(ql_log_info, vha, 0x8012,
-	    "BUS RESET ISSUED nexus=%ld:%d:%llu.\n", vha->host_no, id, lun);
+	    "BUS RESET ISSUED nexus=%ld:%d.\n", vha->host_no, channel);
 
 	if (qla2x00_wait_for_hba_online(vha) != QLA_SUCCESS) {
 		ql_log(ql_log_fatal, vha, 0x8013,
@@ -1642,8 +1637,8 @@ qla2xxx_eh_bus_reset(struct scsi_cmnd *cmd)
 
 eh_bus_reset_done:
 	ql_log(ql_log_warn, vha, 0x802b,
-	    "BUS RESET %s nexus=%ld:%d:%llu.\n",
-	    (ret == FAILED) ? "FAILED" : "SUCCEEDED", vha->host_no, id, lun);
+	    "BUS RESET %s nexus=%ld:%d.\n",
+	    (ret == FAILED) ? "FAILED" : "SUCCEEDED", vha->host_no, channel);
 
 	return ret;
 }

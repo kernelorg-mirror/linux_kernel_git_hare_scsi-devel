@@ -741,7 +741,8 @@ Details::
 
     /**
     *      eh_bus_reset_handler - issue SCSI bus reset
-    *      @scp: SCSI bus that contains this device should be reset
+    *      @host: SCSI Host that contains the channel which should be reset
+    *      @channel: channel to be reset
     *
     *      Returns SUCCESS if command aborted else FAILED
     *
@@ -754,7 +755,7 @@ Details::
     *
     *      Optionally defined in: LLD
     **/
-	int eh_bus_reset_handler(struct scsi_cmnd * scp)
+	int eh_bus_reset_handler(struct Scsi_Host * host, int channel)
 
 
     /**
