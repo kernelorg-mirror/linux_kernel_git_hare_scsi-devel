@@ -1703,21 +1703,20 @@ static int scsi_eh_bus_reset(struct Scsi_Host *shost,
 			     struct list_head *work_q,
 			     struct list_head *done_q)
 {
-	struct scsi_cmnd *scmd, *chan_scmd, *next;
+	LIST_HEAD(tmp_list);
 	LIST_HEAD(check_list);
-	unsigned int channel;
-	enum scsi_disposition rtn;
 
-	/*
-	 * we really want to loop over the various channels, and do this on
-	 * a channel by channel basis.  we should also check to see if any
-	 * of the failed commands are on soft_reset devices, and if so, skip
-	 * the reset.
-	 */
+	list_splice_init(work_q, &tmp_list);
 
-	for (channel = 0; channel <= shost->max_channel; channel++) {
+	while (!list_empty(&tmp_list)) {
+		struct scsi_cmnd *next, *scmd;
+		enum scsi_disposition rtn;
+		unsigned int channel;
+
 		if (scsi_host_eh_past_deadline(shost)) {
+			/* push back on work queue for further processing */
 			list_splice_init(&check_list, work_q);
+			list_splice_init(&tmp_list, work_q);
 			SCSI_LOG_ERROR_RECOVERY(3,
 				shost_printk(KERN_INFO, shost,
 					    "%s: skip BRST, past eh deadline\n",
@@ -1725,42 +1724,31 @@ static int scsi_eh_bus_reset(struct Scsi_Host *shost,
 			return list_empty(work_q);
 		}
 
-		chan_scmd = NULL;
-		list_for_each_entry(scmd, work_q, eh_entry) {
-			if (channel == scmd_channel(scmd)) {
-				chan_scmd = scmd;
-				break;
-				/*
-				 * FIXME add back in some support for
-				 * soft_reset devices.
-				 */
-			}
-		}
+		scmd = list_first_entry(&tmp_list, struct scsi_cmnd, eh_entry);
+		channel = scmd_channel(scmd);
 
-		if (!chan_scmd)
-			continue;
 		SCSI_LOG_ERROR_RECOVERY(3,
 			shost_printk(KERN_INFO, shost,
 				     "%s: Sending BRST chan: %d\n",
 				     current->comm, channel));
-		rtn = scsi_try_bus_reset(chan_scmd);
-		if (rtn == SUCCESS || rtn == FAST_IO_FAIL) {
-			list_for_each_entry_safe(scmd, next, work_q, eh_entry) {
-				if (channel == scmd_channel(scmd)) {
-					if (rtn == FAST_IO_FAIL)
-						__scsi_eh_finish_cmd(scmd,
-								     done_q,
-								     DID_TRANSPORT_DISRUPTED);
-					else
-						list_move_tail(&scmd->eh_entry,
-							       &check_list);
-				}
-			}
-		} else {
+		rtn = scsi_try_bus_reset(scmd);
+		if (rtn != SUCCESS && rtn != FAST_IO_FAIL) {
 			SCSI_LOG_ERROR_RECOVERY(3,
 				shost_printk(KERN_INFO, shost,
 					     "%s: BRST failed chan: %d\n",
 					     current->comm, channel));
+		}
+		list_for_each_entry_safe(scmd, next, work_q, eh_entry) {
+			if (scmd_channel(scmd) != channel)
+				continue;
+
+			if (rtn == SUCCESS)
+				list_move_tail(&scmd->eh_entry, &check_list);
+			else if (rtn == FAST_IO_FAIL)
+				__scsi_eh_finish_cmd(scmd, done_q,
+						     DID_TRANSPORT_DISRUPTED);
+			else
+				list_move_tail(&scmd->eh_entry, work_q);
 		}
 	}
 	return scsi_eh_test_devices(&check_list, work_q, done_q, 0);
