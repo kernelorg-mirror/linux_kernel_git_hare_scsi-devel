@@ -1450,9 +1450,10 @@ static int scsi_eh_test_devices(struct list_head *cmd_list,
 			if (scmd->device == sdev) {
 				if (finish_cmds &&
 				    (try_stu ||
-				     scsi_eh_action(scmd, SUCCESS) == SUCCESS))
+				     scsi_eh_action(scmd, SUCCESS) == SUCCESS)) {
+					set_host_byte(scmd, DID_RESET);
 					scsi_eh_finish_cmd(scmd, done_q);
-				else
+				} else
 					list_move_tail(&scmd->eh_entry, work_q);
 			}
 	}
@@ -1599,9 +1600,10 @@ static int scsi_eh_bus_device_reset(struct Scsi_Host *shost,
 				list_for_each_entry_safe(scmd, next,
 							 work_q, eh_entry) {
 					if (scmd->device == sdev &&
-					    scsi_eh_action(scmd, rtn) != FAILED)
-						scsi_eh_finish_cmd(scmd,
-								   done_q);
+					    scsi_eh_action(scmd, rtn) != FAILED) {
+						set_host_byte(scmd, DID_RESET);
+						scsi_eh_finish_cmd(scmd, done_q);
+					}
 				}
 			}
 		} else {
@@ -1670,9 +1672,10 @@ static int scsi_eh_target_reset(struct Scsi_Host *shost,
 
 			if (rtn == SUCCESS)
 				list_move_tail(&scmd->eh_entry, &check_list);
-			else if (rtn == FAST_IO_FAIL)
+			else if (rtn == FAST_IO_FAIL) {
+				set_host_byte(scmd, DID_TRANSPORT_FAILFAST);
 				scsi_eh_finish_cmd(scmd, done_q);
-			else
+			} else
 				/* push back on work queue for further processing */
 				list_move(&scmd->eh_entry, work_q);
 		}
@@ -1735,10 +1738,11 @@ static int scsi_eh_bus_reset(struct Scsi_Host *shost,
 		if (rtn == SUCCESS || rtn == FAST_IO_FAIL) {
 			list_for_each_entry_safe(scmd, next, work_q, eh_entry) {
 				if (channel == scmd_channel(scmd)) {
-					if (rtn == FAST_IO_FAIL)
-						scsi_eh_finish_cmd(scmd,
-								   done_q);
-					else
+					if (rtn == FAST_IO_FAIL) {
+						set_host_byte(scmd,
+							DID_TRANSPORT_FAILFAST);
+						scsi_eh_finish_cmd(scmd, done_q);
+					} else
 						list_move_tail(&scmd->eh_entry,
 							       &check_list);
 				}
@@ -1781,7 +1785,8 @@ static int scsi_eh_host_reset(struct Scsi_Host *shost,
 			list_splice_init(work_q, &check_list);
 		} else if (rtn == FAST_IO_FAIL) {
 			list_for_each_entry_safe(scmd, next, work_q, eh_entry) {
-					scsi_eh_finish_cmd(scmd, done_q);
+				set_host_byte(scmd, DID_TRANSPORT_FAILFAST);
+				scsi_eh_finish_cmd(scmd, done_q);
 			}
 		} else {
 			SCSI_LOG_ERROR_RECOVERY(3,
