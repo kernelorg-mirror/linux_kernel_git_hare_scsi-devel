@@ -2702,8 +2702,7 @@ static int pmcraid_reset_device(
 	unsigned long lock_flags;
 	u32 ioasc;
 
-	pinstance =
-		(struct pmcraid_instance *)scsi_dev->host->hostdata;
+	pinstance = shost_priv(scsi_dev->host);
 	res = scsi_dev->hostdata;
 
 	if (!res) {
@@ -3026,8 +3025,7 @@ static int pmcraid_eh_device_reset_handler(struct scsi_cmnd *scmd)
 static int pmcraid_eh_bus_reset_handler(struct scsi_cmnd *scmd)
 {
 	struct Scsi_Host *host = scmd->device->host;
-	struct pmcraid_instance *pinstance =
-		(struct pmcraid_instance *)host->hostdata;
+	struct pmcraid_instance *pinstance = shost_priv(host);
 	struct pmcraid_resource_entry *res = NULL;
 	struct pmcraid_resource_entry *temp;
 	struct scsi_device *sdev = NULL;
@@ -3066,6 +3064,7 @@ static int pmcraid_eh_target_reset_handler(struct scsi_cmnd *scmd)
 {
 	struct Scsi_Host *shost = scmd->device->host;
 	struct scsi_device *scsi_dev = NULL, *tmp;
+	int ret;
 
 	shost_for_each_device(tmp, shost) {
 		if ((tmp->channel == scmd->device->channel) &&
@@ -3078,9 +3077,11 @@ static int pmcraid_eh_target_reset_handler(struct scsi_cmnd *scmd)
 		return FAILED;
 	sdev_printk(KERN_INFO, scsi_dev,
 		    "Doing target reset due to an I/O command timeout.\n");
-	return pmcraid_reset_device(scsi_dev,
-				    PMCRAID_INTERNAL_TIMEOUT,
-				    RESET_DEVICE_TARGET);
+	ret = pmcraid_reset_device(scsi_dev,
+				   PMCRAID_INTERNAL_TIMEOUT,
+				   RESET_DEVICE_TARGET);
+	scsi_device_put(scsi_dev);
+	return ret;
 }
 
 /**
