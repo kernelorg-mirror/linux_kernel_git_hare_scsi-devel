@@ -2453,22 +2453,25 @@ scsi_ioctl_reset(struct scsi_device *dev, int __user *arg)
 		break;
 	case SG_SCSI_RESET_DEVICE:
 		rtn = scsi_try_bus_device_reset(dev);
-		if (rtn == SUCCESS || (val & SG_SCSI_RESET_NO_ESCALATE))
+		if (rtn == SUCCESS || rtn == FAST_IO_FAIL ||
+		    (val & SG_SCSI_RESET_NO_ESCALATE))
 			break;
 		fallthrough;
 	case SG_SCSI_RESET_TARGET:
 		rtn = scsi_try_target_reset(shost, starget);
-		if (rtn == SUCCESS || (val & SG_SCSI_RESET_NO_ESCALATE))
+		if (rtn == SUCCESS || rtn == FAST_IO_FAIL ||
+		    (val & SG_SCSI_RESET_NO_ESCALATE))
 			break;
 		fallthrough;
 	case SG_SCSI_RESET_BUS:
 		rtn = scsi_try_bus_reset(shost, dev->channel);
-		if (rtn == SUCCESS || (val & SG_SCSI_RESET_NO_ESCALATE))
+		if (rtn == SUCCESS || rtn == FAST_IO_FAIL ||
+		    (val & SG_SCSI_RESET_NO_ESCALATE))
 			break;
 		fallthrough;
 	case SG_SCSI_RESET_HOST:
 		rtn = scsi_try_host_reset(shost);
-		if (rtn == SUCCESS)
+		if (rtn == SUCCESS || rtn == FAST_IO_FAIL)
 			break;
 		fallthrough;
 	default:
@@ -2476,7 +2479,17 @@ scsi_ioctl_reset(struct scsi_device *dev, int __user *arg)
 		break;
 	}
 
-	error = (rtn == SUCCESS) ? 0 : -EIO;
+	switch (rtn) {
+	case SUCCESS:
+		error = 0;
+		break;
+	case FAST_IO_FAIL:
+		error = -EAGAIN;
+		break;
+	default:
+		error = -EIO;
+		break;
+	}
 
 	spin_lock_irqsave(shost->host_lock, flags);
 	shost->tmf_in_progress = 0;
