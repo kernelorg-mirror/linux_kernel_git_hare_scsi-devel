@@ -1389,8 +1389,11 @@ static void nvme_tcp_io_work(struct work_struct *w)
 		result = nvme_tcp_try_recv(queue);
 		if (result > 0)
 			pending = true;
-		else if (unlikely(result < 0))
+		else if (unlikely(result < 0) && result != -EAGAIN)
 			return;
+
+		if (nvme_tcp_queue_has_pending(queue))
+			pending = true;
 
 		if (!pending || !queue->rd_enabled)
 			return;
