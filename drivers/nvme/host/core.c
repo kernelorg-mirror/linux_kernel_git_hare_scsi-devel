@@ -2060,7 +2060,7 @@ static bool nvme_update_disk_info(struct nvme_ns *ns, struct nvme_id_ns *id,
 		if (id->nsfeat & NVME_NS_FEAT_ATOMICS && id->nawupf)
 			atomic_bs = (1 + le16_to_cpu(id->nawupf)) * bs;
 		else
-			atomic_bs = (1 + ns->ctrl->subsys->awupf) * bs;
+			atomic_bs = (1 + ns->head->subsys->awupf) * bs;
 
 		nvme_update_atomic_write_disk_info(ns, id, lim, bs, atomic_bs);
 	}
@@ -3775,7 +3775,7 @@ static int nvme_init_ns_head(struct nvme_ns *ns, struct nvme_ns_info *info)
 		 */
 		nvme_print_device_info(ctrl);
 		if ((ns->ctrl->ops->flags & NVME_F_FABRICS) || /* !PCIe */
-		    ((ns->ctrl->subsys->cmic & NVME_CTRL_CMIC_MULTI_CTRL) &&
+		    ((ns->head->subsys->cmic & NVME_CTRL_CMIC_MULTI_CTRL) &&
 		     info->is_shared)) {
 			dev_err(ctrl->device,
 				"ignoring nsid %d because of duplicate IDs\n",
@@ -3929,7 +3929,7 @@ static void nvme_alloc_ns(struct nvme_ctrl *ctrl, struct nvme_ns_info *info)
 			ctrl->instance, ns->head->instance);
 		disk->flags |= GENHD_FL_HIDDEN;
 	} else if (multipath) {
-		sprintf(disk->disk_name, "nvme%dn%d", ctrl->subsys->instance,
+		sprintf(disk->disk_name, "nvme%dn%d", ns->head->subsys->instance,
 			ns->head->instance);
 	} else {
 		sprintf(disk->disk_name, "nvme%dn%d", ctrl->instance,
@@ -3978,11 +3978,11 @@ static void nvme_alloc_ns(struct nvme_ctrl *ctrl, struct nvme_ns_info *info)
 	mutex_unlock(&ctrl->namespaces_lock);
 	synchronize_srcu(&ctrl->srcu);
  out_unlink_ns:
-	mutex_lock(&ctrl->subsys->lock);
+	mutex_lock(&ns->head->subsys->lock);
 	list_del_rcu(&ns->siblings);
 	if (list_empty(&ns->head->list))
 		list_del_init(&ns->head->entry);
-	mutex_unlock(&ctrl->subsys->lock);
+	mutex_unlock(&ns->head->subsys->lock);
 	nvme_put_ns_head(ns->head);
  out_cleanup_disk:
 	put_disk(disk);
@@ -4011,13 +4011,13 @@ static void nvme_ns_remove(struct nvme_ns *ns)
 	if (nvme_mpath_clear_current_path(ns))
 		synchronize_srcu(&ns->head->srcu);
 
-	mutex_lock(&ns->ctrl->subsys->lock);
+	mutex_lock(&ns->head->subsys->lock);
 	list_del_rcu(&ns->siblings);
 	if (list_empty(&ns->head->list)) {
 		list_del_init(&ns->head->entry);
 		last_path = true;
 	}
-	mutex_unlock(&ns->ctrl->subsys->lock);
+	mutex_unlock(&ns->head->subsys->lock);
 
 	/* guarantee not available in head->list */
 	synchronize_srcu(&ns->head->srcu);
