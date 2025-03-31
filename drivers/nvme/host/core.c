@@ -3046,15 +3046,6 @@ static int nvme_init_subsystem(struct nvme_ctrl *ctrl, struct nvme_id_ctrl *id)
 	if (!subsys)
 		return -ENOMEM;
 
-	if (nvme_discovery_ctrl(ctrl) && subsys->subtype != NVME_NQN_DISC) {
-		dev_err(ctrl->device,
-			"Subsystem %s is not a discovery controller",
-			subsys->subnqn);
-		ida_free(&nvme_subsystem_ida, subsys->instance);
-		kfree(subsys);
-		return -EINVAL;
-	}
-
 	nvme_init_subnqn(subsys, ctrl, id);
 	memcpy(subsys->serial, id->sn, sizeof(subsys->serial));
 	memcpy(subsys->model, id->mn, sizeof(subsys->model));
@@ -3067,6 +3058,15 @@ static int nvme_init_subsystem(struct nvme_ctrl *ctrl, struct nvme_id_ctrl *id)
 		subsys->subtype = NVME_NQN_DISC;
 	else
 		subsys->subtype = NVME_NQN_NVME;
+
+	if (nvme_discovery_ctrl(ctrl) && subsys->subtype != NVME_NQN_DISC) {
+		dev_err(ctrl->device,
+			"Subsystem %s is not a discovery controller",
+			subsys->subnqn);
+		ida_free(&nvme_subsystem_ida, subsys->instance);
+		kfree(subsys);
+		return -EINVAL;
+	}
 
 	subsys->awupf = le16_to_cpu(id->awupf);
 
@@ -3771,12 +3771,59 @@ static int nvme_global_check_duplicate_ids(struct nvme_subsystem *this,
 	return ret;
 }
 
+static struct nvme_subsystem *nvme_migration_subsys(struct nvme_ns_info *info)
+{
+	struct nvme_subsystem *subsys, *found;
+	char serial[10];
+	int ret;
+
+	subsys = nvme_alloc_subsystem();
+	if (!subsys)
+		return ERR_PTR(-ENOMEM);
+	snprintf(subsys->subnqn, NVMF_NQN_SIZE,
+		 "nvme.2014.08.org.nvmexpress:uuid.%pU",
+		 &info->ids.migration_uuid);
+	memcpy(subsys->model, "Linux", 6);
+	get_random_bytes(&serial, sizeof(serial));
+	bin2hex(subsys->serial, &serial, sizeof(serial));
+	subsys->cmic = NVME_CTRL_CMIC_MULTI_PORT |
+		NVME_CTRL_CMIC_MULTI_CTRL | NVME_CTRL_CMIC_ANA;
+	subsys->subtype = NVME_NQN_NVME;
+
+	mutex_lock(&nvme_subsystems_lock);
+	found = __nvme_find_get_subsystem(subsys->subnqn);
+	if (found) {
+		put_device(&subsys->dev);
+		subsys = found;
+	} else {
+		ret = device_add(&subsys->dev);
+		if (ret) {
+			put_device(&subsys->dev);
+			goto out_unlock;
+		}
+		list_add_tail(&subsys->entry, &nvme_subsystems);
+	}
+out_unlock:
+	mutex_unlock(&nvme_subsystems_lock);
+	return subsys;
+}
+
 static int nvme_init_ns_head(struct nvme_ns *ns, struct nvme_ns_info *info)
 {
 	struct nvme_ctrl *ctrl = ns->ctrl;
 	struct nvme_subsystem *subsys = ctrl->subsys;
 	struct nvme_ns_head *head = NULL;
 	int ret;
+
+	if (info->is_shared && !uuid_is_null(&info->ids.migration_uuid)) {
+		subsys = nvme_migration_subsys(info);
+		if (IS_ERR(subsys)) {
+			dev_err(ctrl->device,
+				"failed to allocate migration subsys\n");
+			return PTR_ERR(subsys);
+		}
+	} else
+		kref_get(&subsys->ref);
 
 	ret = nvme_global_check_duplicate_ids(subsys, &info->ids);
 	if (ret) {
@@ -3803,7 +3850,7 @@ static int nvme_init_ns_head(struct nvme_ns *ns, struct nvme_ns_info *info)
 			dev_err(ctrl->device,
 				"ignoring nsid %d because of duplicate IDs\n",
 				info->nsid);
-			return ret;
+			goto out_put;
 		}
 
 		dev_err(ctrl->device,
@@ -3858,12 +3905,15 @@ static int nvme_init_ns_head(struct nvme_ns *ns, struct nvme_ns_info *info)
 	list_add_tail_rcu(&ns->siblings, &head->list);
 	ns->head = head;
 	mutex_unlock(&subsys->lock);
+	nvme_put_subsystem(subsys);
 	return 0;
 
 out_put_ns_head:
 	nvme_put_ns_head(head);
 out_unlock:
 	mutex_unlock(&subsys->lock);
+out_put:
+	nvme_put_subsystem(subsys);
 	return ret;
 }
 
@@ -3948,7 +3998,7 @@ static void nvme_alloc_ns(struct nvme_ctrl *ctrl, struct nvme_ns_info *info)
 	 * devices.
 	 */
 	if (nvme_ns_head_multipath(ns->head)) {
-		sprintf(disk->disk_name, "nvme%dc%dn%d", ctrl->subsys->instance,
+		sprintf(disk->disk_name, "nvme%dc%dn%d", ns->head->subsys->instance,
 			ctrl->instance, ns->head->instance);
 		disk->flags |= GENHD_FL_HIDDEN;
 	} else if (multipath) {
