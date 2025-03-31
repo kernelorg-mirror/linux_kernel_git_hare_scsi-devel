@@ -650,6 +650,34 @@ out_unlock:
 
 CONFIGFS_ATTR(nvmet_ns_, device_nguid);
 
+static ssize_t nvmet_ns_device_migration_uuid_show(struct config_item *item, char *page)
+{
+	return sprintf(page, "%pUb\n", &to_nvmet_ns(item)->migration_uuid);
+}
+
+static ssize_t nvmet_ns_device_migration_uuid_store(struct config_item *item,
+						    const char *page, size_t count)
+{
+	struct nvmet_ns *ns = to_nvmet_ns(item);
+	struct nvmet_subsys *subsys = ns->subsys;
+	int ret = 0;
+
+	mutex_lock(&subsys->lock);
+	if (ns->enabled) {
+		ret = -EBUSY;
+		goto out_unlock;
+	}
+
+	if (uuid_parse(page, &ns->migration_uuid))
+		ret = -EINVAL;
+
+out_unlock:
+	mutex_unlock(&subsys->lock);
+	return ret ? ret : count;
+}
+
+CONFIGFS_ATTR(nvmet_ns_, device_migration_uuid);
+
 static ssize_t nvmet_ns_ana_grpid_show(struct config_item *item, char *page)
 {
 	return sprintf(page, "%u\n", to_nvmet_ns(item)->anagrpid);
@@ -801,6 +829,7 @@ static struct configfs_attribute *nvmet_ns_attrs[] = {
 	&nvmet_ns_attr_device_path,
 	&nvmet_ns_attr_device_nguid,
 	&nvmet_ns_attr_device_uuid,
+	&nvmet_ns_attr_device_migration_uuid,
 	&nvmet_ns_attr_ana_grpid,
 	&nvmet_ns_attr_enable,
 	&nvmet_ns_attr_buffered_io,

@@ -109,6 +109,7 @@ struct nvmet_ns {
 	u8			nguid[16];
 	uuid_t			uuid;
 	u32			anagrpid;
+	uuid_t			migration_uuid;
 
 	bool			buffered_io;
 	bool			enabled;

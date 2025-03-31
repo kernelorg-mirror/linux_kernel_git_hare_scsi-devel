@@ -1031,6 +1031,13 @@ static void nvmet_execute_identify_desclist(struct nvmet_req *req)
 		if (status)
 			goto out;
 	}
+	if (memchr_inv(&req->ns->migration_uuid, 0, sizeof(req->ns->migration_uuid))) {
+		status = nvmet_copy_ns_identifier(req, NVME_NIDT_MUUID,
+						  NVME_NIDT_MUUID_LEN,
+						  &req->ns->migration_uuid, &off);
+		if (status)
+			goto out;
+	}
 
 	status = nvmet_copy_ns_identifier(req, NVME_NIDT_CSI,
 					  NVME_NIDT_CSI_LEN,
