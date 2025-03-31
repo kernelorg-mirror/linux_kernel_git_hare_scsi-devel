@@ -37,6 +37,7 @@ struct nvme_ns_info {
 	struct nvme_ns_ids ids;
 	u32 nsid;
 	__le32 anagrpid;
+	uuid_t migration_uuid;
 	u8 pi_offset;
 	bool is_shared;
 	bool is_readonly;
@@ -1504,6 +1505,14 @@ static int nvme_process_ns_desc(struct nvme_ctrl *ctrl, struct nvme_ns_ids *ids,
 		memcpy(&ids->csi, data + sizeof(*cur), NVME_NIDT_CSI_LEN);
 		*csi_seen = true;
 		return NVME_NIDT_CSI_LEN;
+	case NVME_NIDT_MUUID:
+		if (cur->nidl != NVME_NIDT_MUUID_LEN) {
+			dev_warn(ctrl->device, "%s %d for NVME_NIDT_MUUID\n",
+				 warn_str, cur->nidl);
+			return -1;
+		}
+		uuid_copy(&ids->migration_uuid, data + sizeof(*cur));
+		return NVME_NIDT_MUUID_LEN;
 	default:
 		/* Skip unknown types */
 		return cur->nidl;

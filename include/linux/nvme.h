@@ -647,12 +647,14 @@ struct nvme_ns_id_desc {
 #define NVME_NIDT_NGUID_LEN	16
 #define NVME_NIDT_UUID_LEN	16
 #define NVME_NIDT_CSI_LEN	1
+#define NVME_NIDT_MUUID_LEN	16
 
 enum {
 	NVME_NIDT_EUI64		= 0x01,
 	NVME_NIDT_NGUID		= 0x02,
 	NVME_NIDT_UUID		= 0x03,
 	NVME_NIDT_CSI		= 0x04,
+	NVME_NIDT_MUUID		= 0x05,
 };
 
 struct nvme_endurance_group_log {
