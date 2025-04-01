@@ -973,6 +973,8 @@ void nvme_mpath_clear_ctrl_paths(struct nvme_ctrl *ctrl);
 void nvme_mpath_shutdown_disk(struct nvme_ns_head *head);
 void nvme_mpath_start_request(struct request *rq);
 void nvme_mpath_end_request(struct request *rq);
+int nvme_mpath_move_head(struct nvme_ns_head *head,
+			 struct nvme_subsystem *subsys);
 
 static inline void nvme_trace_bio_complete(struct request *req)
 {
@@ -1077,6 +1079,11 @@ static inline void nvme_mpath_end_request(struct request *rq)
 static inline bool nvme_disk_is_ns_head(struct gendisk *disk)
 {
 	return false;
+}
+static inline int nvme_mpath_move_head(struct nvme_ns_head *head,
+				       struct nvme_subsystem *subsys)
+{
+	return -EINVAL;
 }
 #endif /* CONFIG_NVME_MULTIPATH */
 

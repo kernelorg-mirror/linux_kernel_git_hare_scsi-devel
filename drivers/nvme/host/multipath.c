@@ -703,6 +703,36 @@ static void nvme_mpath_set_live(struct nvme_ns *ns)
 	kblockd_schedule_work(&head->requeue_work);
 }
 
+int nvme_mpath_move_head(struct nvme_ns_head *head, struct nvme_subsystem *subsys)
+{
+	struct nvme_subsystem *old_subsys = head->subsys;
+	int ret, old_instance;
+
+	ret = ida_alloc_min(&subsys->ns_ida, 1, GFP_KERNEL);
+	if (ret < 0)
+		return ret;
+
+	mutex_lock(&old_subsys->lock);
+	list_del_init(&head->entry);
+	mutex_unlock(&old_subsys->lock);
+	list_add_tail(&head->entry, &subsys->nsheads);
+	head->subsys = subsys;
+	old_instance = head->instance;
+	head->instance = ret;
+	ret = device_move(disk_to_dev(head->disk), &subsys->dev,
+		    DPM_ORDER_DEV_AFTER_PARENT);
+	if (ret) {
+		mutex_lock(&old_subsys->lock);
+		list_del_init(&head->entry);
+		list_add_tail(&head->entry, &old_subsys->nsheads);
+		head->subsys = old_subsys;
+		mutex_unlock(&old_subsys->lock);
+	} else {
+		ida_free(&old_subsys->ns_ida, head->instance);
+	}
+	return ret;
+}
+
 static int nvme_parse_ana_log(struct nvme_ctrl *ctrl, void *data,
 		int (*cb)(struct nvme_ctrl *ctrl, struct nvme_ana_group_desc *,
 			void *))

@@ -4125,12 +4125,78 @@ static void nvme_ns_remove_by_nsid(struct nvme_ctrl *ctrl, u32 nsid)
 static void nvme_validate_ns(struct nvme_ns *ns, struct nvme_ns_info *info)
 {
 	int ret = NVME_SC_INVALID_NS | NVME_STATUS_DNR;
+	struct nvme_ctrl *ctrl = ns->ctrl;
+	struct nvme_subsystem *subsys, *old_subsys = NULL;
+	struct nvme_ns_head *head;
 
 	if (!nvme_ns_ids_equal(&ns->head->ids, &info->ids)) {
 		dev_err(ns->ctrl->device,
 			"identifiers changed for nsid %d\n", ns->head->ns_id);
 		goto out;
 	}
+
+	if (uuid_is_null(&info->ids.migration_uuid)) {
+		/*
+		 * Migration UUID not present:
+		 * use the controller subsystem
+		 */
+		subsys = ctrl->subsys;
+		kref_get(&subsys->ref);
+	} else if (uuid_is_null(&ns->head->ids.migration_uuid)) {
+		/*
+		 * Migration UUID present, but not set for ns_head:
+		 * create migration subsystem
+		 */
+		subsys = nvme_migration_subsys(info);
+		if (!subsys) {
+			dev_err(ctrl->device,
+				"nsid %u: failed to allocate migration subsys\n",
+				ns->head->ns_id);
+			goto out;
+		}
+	} else {
+		/*
+		 * Migration UUID present, and set for ns_head:
+		 * use ns_head subsystem
+		 */
+		subsys = ns->head->subsys;
+		kref_get(&subsys->ref);
+	}
+
+	mutex_lock(&subsys->lock);
+	head = nvme_find_ns_head(subsys, ns->head->ns_id);
+	if (head) {
+		nvme_put_ns_head(head);
+		if (head != ns->head) {
+			dev_err(ctrl->device,
+				"nsid %u already present in subsys %s\n",
+				ns->head->ns_id, subsys->subnqn);
+			mutex_unlock(&subsys->lock);
+			nvme_put_subsystem(subsys);
+			goto out;
+		}
+	} else {
+		mutex_lock(&ns->head->lock);
+		old_subsys = ns->head->subsys;
+		if (nvme_mpath_move_head(ns->head, subsys) < 0) {
+			mutex_unlock(&ns->head->lock);
+			mutex_unlock(&subsys->lock);
+			nvme_put_subsystem(subsys);
+			dev_err(ctrl->device,
+				"failed to move nsid %u to subsystem\n",
+				ns->head->ns_id);
+			old_subsys = NULL;
+			goto out;
+		}
+		kref_get(&subsys->ref);
+		ns->head->ids = info->ids;
+		mutex_unlock(&ns->head->lock);
+		mutex_unlock(&subsys->lock);
+	}
+	mutex_unlock(&subsys->lock);
+	nvme_put_subsystem(subsys);
+	if (old_subsys)
+		nvme_put_subsystem(old_subsys);
 
 	ret = nvme_update_ns_info(ns, info);
 out:
