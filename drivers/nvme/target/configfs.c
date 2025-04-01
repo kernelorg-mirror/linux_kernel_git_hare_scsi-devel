@@ -663,15 +663,10 @@ static ssize_t nvmet_ns_device_migration_uuid_store(struct config_item *item,
 	int ret = 0;
 
 	mutex_lock(&subsys->lock);
-	if (ns->enabled) {
-		ret = -EBUSY;
-		goto out_unlock;
-	}
-
 	if (uuid_parse(page, &ns->migration_uuid))
 		ret = -EINVAL;
-
-out_unlock:
+	else
+		nvmet_ns_changed(subsys, ns->nsid);
 	mutex_unlock(&subsys->lock);
 	return ret ? ret : count;
 }
