@@ -1030,8 +1030,10 @@ void nvme_mpath_add_sysfs_link(struct nvme_ns_head *head)
 		 * Ensure that ns path disk node is already added otherwise we
 		 * may get invalid kobj name for target
 		 */
-		if (!test_bit(GD_ADDED, &ns->disk->state))
+		if (!test_bit(GD_ADDED, &ns->disk->state)) {
+			clear_bit(NVME_NS_SYSFS_ATTR_LINK, &ns->flags);
 			continue;
+		}
 
 		target = disk_to_dev(ns->disk);
 		/*
