@@ -342,8 +342,6 @@ static struct nvme_ns *__nvme_find_path(struct nvme_ns_head *head, int node)
 
 	if (!found)
 		found = fallback;
-	if (found)
-		rcu_assign_pointer(head->current_path[node], found);
 	return found;
 }
 
@@ -364,8 +362,13 @@ static struct nvme_ns *nvme_round_robin_path(struct nvme_ns_head *head)
 	struct nvme_ns *old = srcu_dereference(head->current_path[node],
 					       &head->srcu);
 
-	if (unlikely(!old))
-		return __nvme_find_path(head, node);
+	if (unlikely(!old)) {
+		ns = __nvme_find_path(head, node);
+		if (ns)
+			rcu_assign_pointer(head->current_path[node], found);
+		return ns;
+	}
+
 
 	if (list_is_singular(&head->list)) {
 		if (nvme_path_is_disabled(old))
@@ -455,9 +458,11 @@ static struct nvme_ns *nvme_numa_path(struct nvme_ns_head *head)
 
 	ns = srcu_dereference(head->current_path[node], &head->srcu);
 	if (unlikely(!ns))
-		return __nvme_find_path(head, node);
-	if (unlikely(!nvme_path_is_optimized(ns)))
-		return __nvme_find_path(head, node);
+		ns = __nvme_find_path(head, node);
+	else if (unlikely(!nvme_path_is_optimized(ns)))
+		ns = __nvme_find_path(head, node);
+	if (ns)
+		rcu_assign_pointer(head->current_path[node], found);
 	return ns;
 }
 
@@ -798,12 +803,21 @@ static void nvme_mpath_set_live(struct nvme_ns *ns)
 
 	mutex_lock(&head->lock);
 	if (nvme_path_is_optimized(ns)) {
-		int node, srcu_idx;
+		int srcu_idx, iopolicy;
 
-		srcu_idx = srcu_read_lock(&head->srcu);
-		for_each_online_node(node)
-			__nvme_find_path(head, node);
-		srcu_read_unlock(&head->srcu, srcu_idx);
+		iopolicy = READ_ONCE(head->subsys->iopolicy);
+		if (iopolicy == NVME_IOPOLICY_NUMA ||
+		    iopolicy == NVME_IOPOLICY_RR) {
+			int node;
+
+			srcu_idx = srcu_read_lock(&head->srcu);
+			for_each_online_node(node) {
+				struct nvme_ns *ns = __nvme_find_path(head, node);
+				if (ns)
+					rcu_assign_pointer(head->current_path[node], ns);
+			}
+			srcu_read_unlock(&head->srcu, srcu_idx);
+		}
 	}
 	mutex_unlock(&head->lock);
 
