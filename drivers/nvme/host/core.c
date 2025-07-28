@@ -147,7 +147,6 @@ static const struct class nvme_ns_chr_class = {
 	.name = "nvme-generic",
 };
 
-static void nvme_put_subsystem(struct nvme_subsystem *subsys);
 static void nvme_remove_invalid_namespaces(struct nvme_ctrl *ctrl,
 					   unsigned nsid);
 static void nvme_update_keep_alive(struct nvme_ctrl *ctrl,
@@ -3115,7 +3114,7 @@ static void nvme_destroy_subsystem(struct kref *ref)
 	put_device(&subsys->dev);
 }
 
-static void nvme_put_subsystem(struct nvme_subsystem *subsys)
+void nvme_put_subsystem(struct nvme_subsystem *subsys)
 {
 	kref_put(&subsys->ref, nvme_destroy_subsystem);
 }
@@ -3147,6 +3146,17 @@ static struct nvme_subsystem *__nvme_find_get_subsystem(const char *subsysnqn)
 
 	return NULL;
 }
+
+struct nvme_subsystem *nvme_find_get_subsystem(const char *subsysnqn)
+{
+	struct nvme_subsystem *subsys;
+
+	mutex_lock(&nvme_subsystems_lock);
+	subsys = __nvme_find_get_subsystem(subsysnqn);
+	mutex_unlock(&nvme_subsystems_lock);
+	return subsys;
+}
+EXPORT_SYMBOL_GPL(nvme_find_get_subsystem);
 
 static inline bool nvme_discovery_ctrl(struct nvme_ctrl *ctrl)
 {
