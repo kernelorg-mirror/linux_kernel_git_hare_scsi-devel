@@ -951,7 +951,7 @@ extern const struct block_device_operations nvme_bdev_ops;
 struct nvme_subsystem *nvme_find_get_subsystem(const char *subsysnqn);
 void nvme_put_subsystem(struct nvme_subsystem *subsys);
 void nvme_delete_ctrl_sync(struct nvme_ctrl *ctrl);
-struct nvme_ns *nvme_find_path(struct nvme_ns_head *head);
+struct nvme_ns *nvme_find_path(struct nvme_ns_head *head, sector_t sector);
 #ifdef CONFIG_NVME_MULTIPATH
 static inline bool nvme_ctrl_use_ana(struct nvme_ctrl *ctrl)
 {

@@ -716,7 +716,8 @@ int nvme_ns_head_ioctl(struct block_device *bdev, blk_mode_t mode,
 		flags |= NVME_IOCTL_PARTITION;
 
 	srcu_idx = srcu_read_lock(&head->srcu);
-	ns = nvme_find_path(head);
+	/* TBD: extract LBA and size to get the routing right */
+	ns = nvme_find_path(head, 0);
 	if (!ns)
 		goto out_unlock;
 
@@ -747,7 +748,7 @@ long nvme_ns_head_chr_ioctl(struct file *file, unsigned int cmd,
 	int srcu_idx, ret = -EWOULDBLOCK;
 
 	srcu_idx = srcu_read_lock(&head->srcu);
-	ns = nvme_find_path(head);
+	ns = nvme_find_path(head, 0);
 	if (!ns)
 		goto out_unlock;
 
@@ -767,7 +768,7 @@ int nvme_ns_head_chr_uring_cmd(struct io_uring_cmd *ioucmd,
 	struct cdev *cdev = file_inode(ioucmd->file)->i_cdev;
 	struct nvme_ns_head *head = container_of(cdev, struct nvme_ns_head, cdev);
 	int srcu_idx = srcu_read_lock(&head->srcu);
-	struct nvme_ns *ns = nvme_find_path(head);
+	struct nvme_ns *ns = nvme_find_path(head, 0);
 	int ret = -EINVAL;
 
 	if (ns)

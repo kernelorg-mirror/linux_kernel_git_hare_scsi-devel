@@ -54,7 +54,7 @@ static int nvme_send_ns_head_pr_command(struct block_device *bdev,
 {
 	struct nvme_ns_head *head = bdev->bd_disk->private_data;
 	int srcu_idx = srcu_read_lock(&head->srcu);
-	struct nvme_ns *ns = nvme_find_path(head);
+	struct nvme_ns *ns = nvme_find_path(head, 0);
 	int ret = -EWOULDBLOCK;
 
 	if (ns) {
