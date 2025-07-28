@@ -122,6 +122,15 @@ config NVME_HOST_AUTH
 
 	  If unsure, say N.
 
+config NVME_BPF
+	bool "NVMe multipath BPF path selector"
+	depends on NVME_MULTIPATH
+	depends on BPF_SYSCALL
+	help
+	  Provide support for eBPF multipath path selectors
+
+	  if unsure, say N.
+
 config NVME_APPLE
 	tristate "Apple ANS2 NVM Express host driver"
 	depends on OF && BLOCK

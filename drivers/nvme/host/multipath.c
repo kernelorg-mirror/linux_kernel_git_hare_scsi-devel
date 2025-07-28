@@ -8,6 +8,7 @@
 #include <linux/vmalloc.h>
 #include <trace/events/block.h>
 #include "nvme.h"
+#include "bpf.h"
 
 bool multipath = true;
 static bool multipath_always_on;
@@ -462,12 +463,15 @@ static struct nvme_ns *nvme_numa_path(struct nvme_ns_head *head)
 	else if (unlikely(!nvme_path_is_optimized(ns)))
 		ns = __nvme_find_path(head, node);
 	if (ns)
-		rcu_assign_pointer(head->current_path[node], found);
+		rcu_assign_pointer(head->current_path[node], ns);
 	return ns;
 }
 
 inline struct nvme_ns *nvme_find_path(struct nvme_ns_head *head, sector_t sector)
 {
+	if (nvme_bpf_enabled(head))
+		return nvme_bpf_select_path(head, sector);
+
 	switch (READ_ONCE(head->subsys->iopolicy)) {
 	case NVME_IOPOLICY_QD:
 		return nvme_queue_depth_path(head);
@@ -693,6 +697,7 @@ static void nvme_remove_head(struct nvme_ns_head *head)
 		kblockd_schedule_work(&head->requeue_work);
 
 		nvme_cdev_del(&head->cdev, &head->cdev_device);
+		nvme_bpf_detach(head);
 		synchronize_srcu(&head->srcu);
 		del_gendisk(head->disk);
 	}
@@ -727,6 +732,8 @@ int nvme_mpath_alloc_disk(struct nvme_ctrl *ctrl, struct nvme_ns_head *head)
 	INIT_WORK(&head->requeue_work, nvme_requeue_work);
 	INIT_WORK(&head->partition_scan_work, nvme_partition_scan_work);
 	INIT_DELAYED_WORK(&head->remove_work, nvme_remove_head_work);
+	if (IS_ENABLED(CONFIG_NVME_BPF))
+		INIT_LIST_HEAD(&head->bpf_list);
 	head->delayed_removal_secs = 0;
 
 	/*

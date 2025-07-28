@@ -27,6 +27,7 @@
 #include "nvme.h"
 #include "fabrics.h"
 #include <linux/nvme-auth.h>
+#include "bpf.h"
 
 #define CREATE_TRACE_POINTS
 #include "trace.h"
@@ -5381,6 +5382,8 @@ static int __init nvme_core_init(void)
 	result = nvme_init_auth();
 	if (result)
 		goto destroy_ns_chr;
+	if (IS_ENABLED(CONFIG_NVME_BPF))
+		nvme_bpf_struct_ops_init();
 	return 0;
 
 destroy_ns_chr:

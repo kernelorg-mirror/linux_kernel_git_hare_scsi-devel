@@ -17,7 +17,7 @@
 #include <linux/wait.h>
 #include <linux/t10-pi.h>
 #include <linux/ratelimit_types.h>
-
+#include <linux/bpf.h>
 #include <trace/events/block.h>
 
 extern const struct pr_ops nvme_pr_ops;
@@ -499,6 +499,10 @@ struct nvme_ns_head {
 
 	u16			nr_plids;
 	u16			*plids;
+#ifdef CONFIG_NVME_BPF
+	struct list_head	bpf_list;
+	struct nvme_bpf_ops __rcu *bpf_ops;
+#endif
 #ifdef CONFIG_NVME_MULTIPATH
 	struct bio_list		requeue_list;
 	spinlock_t		requeue_lock;
