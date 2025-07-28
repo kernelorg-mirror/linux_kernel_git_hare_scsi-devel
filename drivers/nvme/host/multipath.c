@@ -1137,6 +1137,20 @@ static ssize_t numa_nodes_show(struct device *dev, struct device_attribute *attr
 }
 DEVICE_ATTR_RO(numa_nodes);
 
+static ssize_t iopolicy_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct gendisk *disk = dev_to_disk(dev);
+	struct nvme_ns_head *head = disk->private_data;
+	int iopolicy;
+
+	if (nvme_bpf_enabled(head))
+		return sysfs_emit(buf, "bpf(%pUb)\n", &head->bpf_ops->uuid);
+	iopolicy = READ_ONCE(head->subsys->iopolicy);
+	return sysfs_emit(buf, "%s\n", nvme_iopolicy_names[iopolicy]);
+}
+DEVICE_ATTR_RO(iopolicy);
+
 static ssize_t delayed_removal_secs_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
