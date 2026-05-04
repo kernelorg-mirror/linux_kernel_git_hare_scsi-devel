@@ -36,6 +36,11 @@ struct configfs_fs_info {
 	struct ns_common *ns;
 };
 
+struct configfs_sb_info {
+	struct configfs_dirent root;
+	struct ns_common *ns_tag;
+};
+
 static void configfs_free_inode(struct inode *inode)
 {
 	if (S_ISLNK(inode->i_mode))
@@ -54,28 +59,30 @@ int configfs_is_root(struct config_item *item)
 	return item->ci_name == root_name;
 }
 
-static struct configfs_dirent configfs_root = {
-	.s_sibling	= LIST_HEAD_INIT(configfs_root.s_sibling),
-	.s_children	= LIST_HEAD_INIT(configfs_root.s_children),
-	.s_type		= CONFIGFS_ROOT,
-	.s_iattr	= NULL,
-};
-
 static int configfs_fill_super(struct super_block *sb, struct fs_context *fc)
 {
 	struct configfs_fs_info *fsi = sb->s_fs_info;
+	struct configfs_sb_info *info;
 	struct inode *inode;
 	struct dentry *root;
 
+	info = kzalloc_obj(*info);
+	if (!info)
+		return -ENOMEM;
+
+	INIT_LIST_HEAD(&info->root.s_sibling);
+	INIT_LIST_HEAD(&info->root.s_children);
+	info->ns_tag = fsi->ns;
+	info->root.s_type = CONFIGFS_ROOT;
+	info->root.s_element = &fsi->group.cg_item;
 	sb->s_blocksize = PAGE_SIZE;
 	sb->s_blocksize_bits = PAGE_SHIFT;
 	sb->s_magic = CONFIGFS_MAGIC;
 	sb->s_op = &configfs_ops;
 	sb->s_time_gran = 1;
-	configfs_root.s_element = &fsi->group.cg_item;
 
 	inode = configfs_new_inode(S_IFDIR | S_IRWXU | S_IRUGO | S_IXUGO,
-				   &configfs_root, sb);
+				   &info->root, sb);
 	if (inode) {
 		inode->i_op = &configfs_root_inode_operations;
 		inode->i_fop = &configfs_dir_operations;
@@ -93,7 +100,7 @@ static int configfs_fill_super(struct super_block *sb, struct fs_context *fc)
 	}
 	config_group_init(&fsi->group);
 	fsi->group.cg_item.ci_dentry = root;
-	root->d_fsdata = &configfs_root;
+	root->d_fsdata = &info->root;
 	sb->s_root = root;
 	set_default_d_op(sb, &configfs_dentry_ops); /* the rest get that */
 	sb->s_d_flags |= DCACHE_DONTCACHE;
@@ -105,8 +112,18 @@ static int configfs_get_tree(struct fs_context *fc)
 	return get_tree_single(fc, configfs_fill_super);
 }
 
+static void configfs_fs_context_free(struct fs_context *fc)
+{
+	struct configfs_sb_info *info = fc->fs_private;
+
+	if (info->ns_tag)
+		kobj_ns_drop(KOBJ_NS_TYPE_NET, info->ns_tag);
+	kfree(info);
+}
+
 static const struct fs_context_operations configfs_context_ops = {
 	.get_tree	= configfs_get_tree,
+	.free		= configfs_fs_context_free,
 };
 
 static int configfs_init_fs_context(struct fs_context *fc)
