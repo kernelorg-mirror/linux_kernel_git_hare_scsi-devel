@@ -38,7 +38,7 @@ struct configfs_fs_info {
 
 struct configfs_sb_info {
 	struct configfs_dirent root;
-	struct ns_common *ns_tag;
+	struct ns_common *ns;
 };
 
 static void configfs_free_inode(struct inode *inode)
@@ -72,7 +72,7 @@ static int configfs_fill_super(struct super_block *sb, struct fs_context *fc)
 
 	INIT_LIST_HEAD(&info->root.s_sibling);
 	INIT_LIST_HEAD(&info->root.s_children);
-	info->ns_tag = fsi->ns;
+	info->ns = fsi->ns;
 	info->root.s_type = CONFIGFS_ROOT;
 	info->root.s_element = &fsi->group.cg_item;
 	sb->s_blocksize = PAGE_SIZE;
@@ -104,6 +104,7 @@ static int configfs_fill_super(struct super_block *sb, struct fs_context *fc)
 	sb->s_root = root;
 	set_default_d_op(sb, &configfs_dentry_ops); /* the rest get that */
 	sb->s_d_flags |= DCACHE_DONTCACHE;
+	fc->fs_private = info;
 	return 0;
 }
 
@@ -116,8 +117,8 @@ static void configfs_fs_context_free(struct fs_context *fc)
 {
 	struct configfs_sb_info *info = fc->fs_private;
 
-	if (info->ns_tag)
-		kobj_ns_drop(KOBJ_NS_TYPE_NET, info->ns_tag);
+	if (info->ns)
+		kobj_ns_drop(KOBJ_NS_TYPE_NET, info->ns);
 	kfree(info);
 }
 
