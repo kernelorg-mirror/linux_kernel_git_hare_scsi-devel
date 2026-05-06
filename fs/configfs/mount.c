@@ -32,12 +32,12 @@ static int configfs_mnt_count = 0;
 static const char root_name[] = "root";
 
 struct configfs_fs_info {
-	struct config_group group;
 	struct ns_common *ns;
 };
 
-struct configfs_sb_info {
+struct configfs_root_info {
 	struct configfs_dirent root;
+	struct config_group group;
 	struct ns_common *ns;
 };
 
@@ -61,20 +61,22 @@ int configfs_is_root(struct config_item *item)
 
 static int configfs_fill_super(struct super_block *sb, struct fs_context *fc)
 {
-	struct configfs_fs_info *fsi = sb->s_fs_info;
-	struct configfs_sb_info *info;
+	struct configfs_fs_info *fsi = fc->fs_private;
+	struct configfs_root_info *fri;
 	struct inode *inode;
 	struct dentry *root;
 
-	info = kzalloc_obj(*info);
-	if (!info)
+	fri = kzalloc_obj(*fri);
+	if (!fri)
 		return -ENOMEM;
 
-	INIT_LIST_HEAD(&info->root.s_sibling);
-	INIT_LIST_HEAD(&info->root.s_children);
-	info->ns = fsi->ns;
-	info->root.s_type = CONFIGFS_ROOT;
-	info->root.s_element = &fsi->group.cg_item;
+	INIT_LIST_HEAD(&fri->root.s_sibling);
+	INIT_LIST_HEAD(&fri->root.s_children);
+	fri->ns = fsi->ns;
+	fri->root.s_type = CONFIGFS_ROOT;
+	fri->root.s_element = &fri->group.cg_item;
+
+	fri->group.cg_item.ci_name = (char *)root_name;
 	sb->s_blocksize = PAGE_SIZE;
 	sb->s_blocksize_bits = PAGE_SHIFT;
 	sb->s_magic = CONFIGFS_MAGIC;
@@ -82,7 +84,7 @@ static int configfs_fill_super(struct super_block *sb, struct fs_context *fc)
 	sb->s_time_gran = 1;
 
 	inode = configfs_new_inode(S_IFDIR | S_IRWXU | S_IRUGO | S_IXUGO,
-				   &info->root, sb);
+				   &fri->root, sb);
 	if (inode) {
 		inode->i_op = &configfs_root_inode_operations;
 		inode->i_fop = &configfs_dir_operations;
@@ -98,13 +100,13 @@ static int configfs_fill_super(struct super_block *sb, struct fs_context *fc)
 		pr_debug("%s: could not get root dentry!\n",__func__);
 		return -ENOMEM;
 	}
-	config_group_init(&fsi->group);
-	fsi->group.cg_item.ci_dentry = root;
-	root->d_fsdata = &info->root;
+	config_group_init(&fri->group);
+	fri->group.cg_item.ci_dentry = root;
+	root->d_fsdata = &fri->root;
 	sb->s_root = root;
 	set_default_d_op(sb, &configfs_dentry_ops); /* the rest get that */
 	sb->s_d_flags |= DCACHE_DONTCACHE;
-	fc->fs_private = info;
+	sb->s_fs_info = fri;
 	return 0;
 }
 
@@ -115,11 +117,12 @@ static int configfs_get_tree(struct fs_context *fc)
 
 static void configfs_fs_context_free(struct fs_context *fc)
 {
-	struct configfs_sb_info *info = fc->fs_private;
+	struct configfs_fs_info *fsi = fc->fs_private;
 
-	if (info->ns)
-		kobj_ns_drop(KOBJ_NS_TYPE_NET, info->ns);
-	kfree(info);
+	if (fsi->ns)
+		kobj_ns_drop(KOBJ_NS_TYPE_NET, fsi->ns);
+
+	kfree(fsi);
 }
 
 static const struct fs_context_operations configfs_context_ops = {
@@ -134,7 +137,6 @@ static int configfs_init_fs_context(struct fs_context *fc)
 	fsi = kzalloc_obj(*fsi);
 	if (!fsi)
 		return -ENOMEM;
-	fsi->group.cg_item.ci_name = (char *)root_name;
 	fsi->ns = kobj_ns_grab_current(KOBJ_NS_TYPE_NET);
 	if (fsi->ns) {
 		struct net *netns = to_net_ns(fsi->ns);
@@ -142,7 +144,7 @@ static int configfs_init_fs_context(struct fs_context *fc)
 		put_user_ns(fc->user_ns);
 		fc->user_ns = get_user_ns(netns->user_ns);
 	}
-	fc->s_fs_info = fsi;
+	fc->fs_private = fsi;
 	fc->ops = &configfs_context_ops;
 	fc->global = true;
 	return 0;
@@ -150,12 +152,12 @@ static int configfs_init_fs_context(struct fs_context *fc)
 
 static void configfs_kill_sb(struct super_block *sb)
 {
-	struct configfs_fs_info *fsi =
-		(struct configfs_fs_info *)(sb->s_fs_info);
-	struct ns_common *ns = fsi->ns;
+	struct configfs_root_info *fri =
+		(struct configfs_root_info *)(sb->s_fs_info);
+	struct ns_common *ns = fri->ns;
 
 	kill_anon_super(sb);
-	kfree(fsi);
+	kfree(fri);
 	kobj_ns_drop(KOBJ_NS_TYPE_NET, ns);
 }
 
