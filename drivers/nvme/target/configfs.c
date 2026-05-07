@@ -11,6 +11,7 @@
 #include <linux/slab.h>
 #include <linux/stat.h>
 #include <linux/ctype.h>
+#include <linux/mnt_namespace.h>
 #include <linux/pci.h>
 #include <linux/pci-p2pdma.h>
 #ifdef CONFIG_NVME_TARGET_AUTH
@@ -25,8 +26,16 @@
 static const struct config_item_type nvmet_host_type;
 static const struct config_item_type nvmet_subsys_type;
 
+static DEFINE_IDR(nvmet_root_idr);
 static LIST_HEAD(nvmet_ports_list);
 struct list_head *nvmet_ports = &nvmet_ports_list;
+
+struct nvmet_configfs_root {
+	struct configfs_subsystem subsystem;
+	struct config_group subsystems_group;
+	struct config_group ports_group;
+	struct config_group hosts_group;
+};
 
 struct nvmet_type_name_map {
 	u8		type;
@@ -2120,9 +2129,6 @@ static const struct config_item_type nvmet_ports_type = {
 	.ct_owner		= THIS_MODULE,
 };
 
-static struct config_group nvmet_subsystems_group;
-static struct config_group nvmet_ports_group;
-
 #ifdef CONFIG_NVME_TARGET_AUTH
 static ssize_t nvmet_host_dhchap_key_show(struct config_item *item,
 		char *page)
@@ -2304,8 +2310,6 @@ static const struct config_item_type nvmet_hosts_type = {
 	.ct_owner		= THIS_MODULE,
 };
 
-static struct config_group nvmet_hosts_group;
-
 static ssize_t nvmet_root_discovery_nqn_show(struct config_item *item,
 					     char *page)
 {
@@ -2315,10 +2319,15 @@ static ssize_t nvmet_root_discovery_nqn_show(struct config_item *item,
 static ssize_t nvmet_root_discovery_nqn_store(struct config_item *item,
 		const char *page, size_t count)
 {
+	struct ns_common *ns = from_mnt_ns(current->nsproxy->mnt_ns);
+	struct nvmet_configfs_root *root =
+		idr_find(&nvmet_root_idr, ns->ns_id);
 	struct list_head *entry;
 	char *old_nqn, *new_nqn;
 	size_t len;
 
+	if (!root)
+		return 0;
 	len = strcspn(page, "\n");
 	if (!len || len > NVMF_NQN_FIELD_LEN - 1)
 		return -EINVAL;
@@ -2328,7 +2337,8 @@ static ssize_t nvmet_root_discovery_nqn_store(struct config_item *item,
 		return -ENOMEM;
 
 	down_write(&nvmet_config_sem);
-	list_for_each(entry, &nvmet_subsystems_group.cg_children) {
+	root = idr_find(&nvmet_root_idr, ns->ns_id);
+	list_for_each(entry, &root->subsystems_group.cg_children) {
 		struct config_item *item =
 			container_of(entry, struct config_item, ci_entry);
 
@@ -2359,39 +2369,47 @@ static const struct config_item_type nvmet_root_type = {
 	.ct_owner		= THIS_MODULE,
 };
 
-static struct configfs_subsystem nvmet_configfs_subsystem = {
-	.su_group = {
-		.cg_item = {
-			.ci_namebuf	= "nvmet",
-			.ci_type	= &nvmet_root_type,
-		},
-	},
-};
-
 int __init nvmet_init_configfs(void)
 {
+	struct ns_common *ns = from_mnt_ns(current->nsproxy->mnt_ns);
+	struct nvmet_configfs_root *root;
 	int ret;
 
-	config_group_init(&nvmet_configfs_subsystem.su_group);
-	mutex_init(&nvmet_configfs_subsystem.su_mutex);
+	root = kzalloc_obj(*root);
+	if (!root)
+		return 0;
 
-	config_group_init_type_name(&nvmet_subsystems_group,
+	ret = idr_alloc(&nvmet_root_idr, root, ns->ns_id,
+			ns->ns_id + 1, GFP_KERNEL);
+	if (ret < 0) {
+		kfree(root);
+		return ret;
+	}
+	WARN_ON(ret != ns->ns_id);
+	strcpy(root->subsystem.su_group.cg_item.ci_namebuf, "nvmet");
+	root->subsystem.su_group.cg_item.ci_type = &nvmet_root_type;
+	config_group_init(&root->subsystem.su_group);
+	mutex_init(&root->subsystem.su_mutex);
+
+	config_group_init_type_name(&root->subsystems_group,
 			"subsystems", &nvmet_subsystems_type);
-	configfs_add_default_group(&nvmet_subsystems_group,
-			&nvmet_configfs_subsystem.su_group);
+	configfs_add_default_group(&root->subsystems_group,
+			&root->subsystem.su_group);
 
-	config_group_init_type_name(&nvmet_ports_group,
+	config_group_init_type_name(&root->ports_group,
 			"ports", &nvmet_ports_type);
-	configfs_add_default_group(&nvmet_ports_group,
-			&nvmet_configfs_subsystem.su_group);
+	configfs_add_default_group(&root->ports_group,
+			&root->subsystem.su_group);
 
-	config_group_init_type_name(&nvmet_hosts_group,
+	config_group_init_type_name(&root->hosts_group,
 			"hosts", &nvmet_hosts_type);
-	configfs_add_default_group(&nvmet_hosts_group,
-			&nvmet_configfs_subsystem.su_group);
+	configfs_add_default_group(&root->hosts_group,
+			&root->subsystem.su_group);
 
-	ret = configfs_register_subsystem(&nvmet_configfs_subsystem);
+	ret = configfs_register_subsystem(&root->subsystem);
 	if (ret) {
+		idr_remove(&nvmet_root_idr, ns->ns_id);
+		kfree(root);
 		pr_err("configfs_register_subsystem: %d\n", ret);
 		return ret;
 	}
@@ -2401,5 +2419,12 @@ int __init nvmet_init_configfs(void)
 
 void __exit nvmet_exit_configfs(void)
 {
-	configfs_unregister_subsystem(&nvmet_configfs_subsystem);
+	struct ns_common *ns = from_mnt_ns(current->nsproxy->mnt_ns);
+	struct nvmet_configfs_root *root =
+		idr_find(&nvmet_root_idr, ns->ns_id);
+
+	if (WARN_ON(!root))
+		return;
+	configfs_unregister_subsystem(&root->subsystem);
+	kfree(root);
 }

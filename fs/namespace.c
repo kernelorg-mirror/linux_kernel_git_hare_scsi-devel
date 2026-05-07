@@ -2099,6 +2099,7 @@ struct ns_common *from_mnt_ns(struct mnt_namespace *mnt)
 {
 	return &mnt->ns;
 }
+EXPORT_SYMBOL_GPL(from_mnt_ns);
 
 struct mnt_namespace *get_sequential_mnt_ns(struct mnt_namespace *mntns, bool previous)
 {

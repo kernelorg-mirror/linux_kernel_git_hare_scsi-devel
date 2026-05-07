@@ -193,6 +193,7 @@ struct dentry *configfs_pin_fs(void)
 		kfree(root);
 		return ERR_PTR(err);
 	}
+	pr_debug("%s: ns %llu\n", __func__, ns->ns_id);
 	return root->mnt->mnt_root;
 }
 
