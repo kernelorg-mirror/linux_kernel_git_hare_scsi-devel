@@ -61,22 +61,33 @@ int configfs_is_root(struct config_item *item)
 	return item->ci_name == root_name;
 }
 
+static int configfs_test_super(struct super_block *sb, struct fs_context *fc)
+{
+	struct configfs_super_info *sb_info =
+		(struct configfs_super_info *)sb->s_fs_info;
+	struct configfs_super_info *info = fc->s_fs_info;
+
+	return sb_info->root == info->root && sb_info->ns == info->ns;
+}
+
 static int configfs_fill_super(struct super_block *sb, struct fs_context *fc)
 {
-	struct configfs_sb_info *sbi;
+	struct configfs_fs_info *fsi = fc->fs_private;
+	struct configfs_super_info *info;
 	struct inode *inode;
 	struct dentry *root;
 
-	sbi = kzalloc_obj(*sbi);
-	if (!sbi)
+	info = kzalloc_obj(*info);
+	if (!info)
 		return -ENOMEM;
 
-	INIT_LIST_HEAD(&sbi->root.s_sibling);
-	INIT_LIST_HEAD(&sbi->root.s_children);
-	sbi->root.s_type = CONFIGFS_ROOT;
-	sbi->root.s_element = &sbi->group.cg_item;
+	INIT_LIST_HEAD(&info->root.s_sibling);
+	INIT_LIST_HEAD(&info->root.s_children);
+	info->root.s_type = CONFIGFS_ROOT;
+	info->root.s_element = &info->group.cg_item;
+	info->ns = fsi->ns;
 
-	sbi->group.cg_item.ci_name = (char *)root_name;
+	info->group.cg_item.ci_name = (char *)root_name;
 	sb->s_blocksize = PAGE_SIZE;
 	sb->s_blocksize_bits = PAGE_SHIFT;
 	sb->s_magic = CONFIGFS_MAGIC;
@@ -84,7 +95,7 @@ static int configfs_fill_super(struct super_block *sb, struct fs_context *fc)
 	sb->s_time_gran = 1;
 
 	inode = configfs_new_inode(S_IFDIR | S_IRWXU | S_IRUGO | S_IXUGO,
-				   &sbi->root, sb);
+				   &info->root, sb);
 	if (inode) {
 		inode->i_op = &configfs_root_inode_operations;
 		inode->i_fop = &configfs_dir_operations;
@@ -100,19 +111,19 @@ static int configfs_fill_super(struct super_block *sb, struct fs_context *fc)
 		pr_debug("%s: could not get root dentry!\n",__func__);
 		return -ENOMEM;
 	}
-	config_group_init(&sbi->group);
-	sbi->group.cg_item.ci_dentry = root;
-	root->d_fsdata = &sbi->root;
+	config_group_init(&info->group);
+	info->group.cg_item.ci_dentry = root;
+	root->d_fsdata = &info->root;
 	sb->s_root = root;
 	set_default_d_op(sb, &configfs_dentry_ops); /* the rest get that */
 	sb->s_d_flags |= DCACHE_DONTCACHE;
-	sb->s_fs_info = sbi;
+	sb->s_fs_info = info;
 	return 0;
 }
 
 static int configfs_get_tree(struct fs_context *fc)
 {
-	return get_tree_single(fc, configfs_fill_super);
+	return vfs_get_super(fc, configfs_test_super, configfs_fill_super);
 }
 
 static void configfs_fs_context_free(struct fs_context *fc)
@@ -152,11 +163,11 @@ static int configfs_init_fs_context(struct fs_context *fc)
 
 static void configfs_kill_sb(struct super_block *sb)
 {
-	struct configfs_sb_info *sbi =
+	struct configfs_sb_info *info =
 		(struct configfs_sb_info *)(sb->s_fs_info);
 
 	kill_anon_super(sb);
-	kfree(sbi);
+	kfree(info);
 }
 
 static struct file_system_type configfs_fs_type = {
@@ -167,6 +178,23 @@ static struct file_system_type configfs_fs_type = {
 };
 MODULE_ALIAS_FS("configfs");
 
+struct configfs_root_info *configfs_get_root(struct ns_common *ns)
+{
+	struct configfs_root_info *root =
+		kzalloc_obj(*root);
+
+	if (!root)
+		return ERR_PTR(-ENOMEM);
+	err = idr_alloc(&configfs_mount, root, ns->ns_id,
+			ns->ns_id + 1, GFP_KERNEL);
+	if (err < 0) {
+		kfree(root);
+		return ERR_PTR(err);
+	}
+	WARN_ON(err != ns->ns_id);
+	return root;
+}
+
 struct dentry *configfs_pin_fs(void)
 {
 	struct ns_common *ns = from_mnt_ns(current->nsproxy->mnt_ns);
@@ -175,16 +203,9 @@ struct dentry *configfs_pin_fs(void)
 	int err;
 
 	if (!root) {
-		root = kzalloc_obj(*root);
-		if (!root)
-			return ERR_PTR(-ENOMEM);;
-		err = idr_alloc(&configfs_mount, root, ns->ns_id,
-				ns->ns_id + 1, GFP_KERNEL);
-		if (err < 0) {
-			kfree(root);
-			return ERR_PTR(err);
-		}
-		WARN_ON(err != ns->ns_id);
+		root = configfs_create_root(ns);
+		if (IS_ERR(root))
+			return ERR_CAST(root);
 	}
 	err = simple_pin_fs(&configfs_fs_type, &root->mnt,
 			    &root->count);
@@ -193,7 +214,7 @@ struct dentry *configfs_pin_fs(void)
 		kfree(root);
 		return ERR_PTR(err);
 	}
-	pr_debug("%s: ns %llu\n", __func__, ns->ns_id);
+	pr_debug("%s: pin ns %llu\n", __func__, ns->ns_id);
 	return root->mnt->mnt_root;
 }
 
@@ -205,6 +226,7 @@ void configfs_release_fs(void)
 
 	simple_release_fs(&root->mnt, &root->count);
 	if (!root->count) {
+		pr_debug("%s: drop ns %llu\n", __func__, ns->ns_id);
 		idr_remove(&configfs_mount, ns->ns_id);
 		kfree(root);
 	}
@@ -221,6 +243,7 @@ static int __init configfs_init(void)
 	if (!configfs_dir_cachep)
 		goto out;
 
+	configfs_root = configfs_create_root(
 	err = sysfs_create_mount_point(kernel_kobj, "config");
 	if (err)
 		goto out2;
