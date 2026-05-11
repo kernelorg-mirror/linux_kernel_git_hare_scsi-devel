@@ -567,19 +567,19 @@ or looking up of superblocks.
 
 The following helpers all wrap sget_fc():
 
-	(1) vfs_get_single_super
+	(1) get_tree_single
 
 	    Only one such superblock may exist in the system.  Any further
 	    attempt to get a new superblock gets this one (and any parameter
 	    differences are ignored).
 
-	(2) vfs_get_keyed_super
+	(2) get_tree_keyed
 
 	    Multiple superblocks of this type may exist and they're keyed on
 	    their s_fs_info pointer (for example this may refer to a
 	    namespace).
 
-	(3) vfs_get_independent_super
+	(3) get_tree_nodev
 
 	    Multiple independent superblocks of this type may exist.  This
 	    function never matches an existing one and always creates a new
