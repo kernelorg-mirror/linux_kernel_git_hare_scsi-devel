@@ -1839,24 +1839,16 @@ void configfs_unregister_default_group(struct config_group *group)
 }
 EXPORT_SYMBOL(configfs_unregister_default_group);
 
-int configfs_register_subsystem(struct configfs_subsystem *subsys)
+static int configfs_link_root(struct dentry *root, struct config_group *group)
 {
 	int err;
-	struct config_group *group = &subsys->su_group;
 	struct dentry *dentry;
-	struct dentry *root;
 	struct configfs_dirent *sd;
 	struct configfs_fragment *frag;
 
 	frag = new_fragment();
 	if (!frag)
 		return -ENOMEM;
-
-	root = configfs_pin_fs();
-	if (IS_ERR(root)) {
-		put_fragment(frag);
-		return PTR_ERR(root);
-	}
 
 	if (!group->cg_item.ci_name)
 		group->cg_item.ci_name = group->cg_item.ci_namebuf;
@@ -1895,17 +1887,32 @@ int configfs_register_subsystem(struct configfs_subsystem *subsys)
 		mutex_lock(&configfs_subsystem_mutex);
 		unlink_group(group);
 		mutex_unlock(&configfs_subsystem_mutex);
-		configfs_release_fs();
 	}
 	put_fragment(frag);
 
 	return err;
 }
 
-void configfs_unregister_subsystem(struct configfs_subsystem *subsys)
+int configfs_register_subsystem(struct configfs_subsystem *subsys)
 {
-	struct config_group *group = &subsys->su_group;
-	struct dentry *dentry = dget(group->cg_item.ci_dentry);
+	struct dentry *root;
+	int err;
+
+	root = configfs_pin_fs();
+	if (IS_ERR(root))
+		return PTR_ERR(root);
+
+	err = configfs_link_root(root, &subsys->su_group);
+	if (err < 0)
+		configfs_release_fs();
+
+	return err;
+}
+
+static void configfs_unlink_root(struct config_group *group,
+				 struct configfs_super_info *info)
+{
+	struct dentry *dentry = group->cg_item.ci_dentry;
 	struct dentry *root = dentry->d_sb->s_root;
 	struct configfs_dirent *sd = dentry->d_fsdata;
 	struct configfs_fragment *frag = sd->s_frag;
@@ -1940,11 +1947,20 @@ void configfs_unregister_subsystem(struct configfs_subsystem *subsys)
 	inode_unlock(d_inode(root));
 
 	dput(dentry);
+}
+
+void configfs_unregister_subsystem(struct configfs_subsystem *subsys)
+{
+	struct config_group *group = &subsys->su_group;
+	struct configfs_super_info *info = configfs_get_root(NULL);
+
+	configfs_unlink_root(group, info);
 
 	mutex_lock(&configfs_subsystem_mutex);
 	unlink_group(group);
 	mutex_unlock(&configfs_subsystem_mutex);
 	configfs_release_fs();
+	configfs_put_root(info);
 }
 
 EXPORT_SYMBOL(configfs_register_subsystem);
