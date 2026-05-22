@@ -44,6 +44,16 @@ struct configfs_dirent {
 	struct configfs_fragment *s_frag;
 };
 
+struct configfs_super_info {
+	struct configfs_dirent root;
+	struct config_group group;
+	struct list_head subsys_list;
+	struct mutex subsys_mutex;
+	struct ns_common *ns;
+	struct vfsmount *mnt;
+	unsigned mnt_count;
+};
+
 #define CONFIGFS_ROOT		0x0001
 #define CONFIGFS_DIR		0x0002
 #define CONFIGFS_ITEM_ATTR	0x0004
@@ -81,6 +91,8 @@ extern int configfs_setattr(struct mnt_idmap *idmap,
 
 extern struct dentry *configfs_pin_fs(void);
 extern void configfs_release_fs(void);
+extern struct configfs_super_info *configfs_get_root(struct ns_common *ns);
+extern void configfs_put_root(struct configfs_super_info *info);
 
 extern const struct file_operations configfs_dir_operations;
 extern const struct file_operations configfs_file_operations;

@@ -22,10 +22,8 @@
 /* Random magic number */
 #define CONFIGFS_MAGIC 0x62656570
 
-static struct vfsmount *configfs_mount = NULL;
 struct kmem_cache *configfs_dir_cachep;
-static int configfs_mnt_count = 0;
-
+static struct configfs_super_info *configfs_root = NULL;
 
 static void configfs_free_inode(struct inode *inode)
 {
@@ -40,13 +38,6 @@ static const struct super_operations configfs_ops = {
 	.free_inode	= configfs_free_inode,
 };
 
-static struct config_group configfs_root_group = {
-	.cg_item = {
-		.ci_namebuf	= "root",
-		.ci_name	= configfs_root_group.cg_item.ci_namebuf,
-	},
-};
-
 int configfs_is_root(struct config_item *item)
 {
 	struct configfs_dirent *sd =
@@ -54,16 +45,44 @@ int configfs_is_root(struct config_item *item)
 	return sd->s_type == CONFIGFS_ROOT;
 }
 
-static struct configfs_dirent configfs_root = {
-	.s_sibling	= LIST_HEAD_INIT(configfs_root.s_sibling),
-	.s_children	= LIST_HEAD_INIT(configfs_root.s_children),
-	.s_element	= &configfs_root_group.cg_item,
-	.s_type		= CONFIGFS_ROOT,
-	.s_iattr	= NULL,
-};
+static void configfs_fill_root(struct configfs_super_info *info)
+{
+	INIT_LIST_HEAD(&info->root.s_sibling);
+	INIT_LIST_HEAD(&info->root.s_children);
+	info->root.s_type = CONFIGFS_ROOT;
+	info->root.s_element = &info->group.cg_item;
+	strcpy(info->group.cg_item.ci_namebuf, "root");
+	info->group.cg_item.ci_name = info->group.cg_item.ci_namebuf;
+	config_group_init(&info->group);
+	INIT_LIST_HEAD(&info->subsys_list);
+	mutex_init(&info->subsys_mutex);
+}
+
+struct configfs_super_info *configfs_get_root(struct ns_common *ns)
+{
+	struct configfs_super_info *info;
+
+	if (configfs_root)
+		return configfs_root;
+
+	info = kzalloc_obj(*info);
+	if (!info)
+		return ERR_PTR(-ENOMEM);
+
+	configfs_fill_root(info);
+	return info;
+}
+
+void configfs_put_root(struct configfs_super_info *info)
+{
+	if (info != configfs_root)
+		kfree(info);
+}
 
 static int configfs_fill_super(struct super_block *sb, struct fs_context *fc)
 {
+	struct configfs_super_info *info =
+		(struct configfs_super_info *)sb->s_fs_info;
 	struct inode *inode;
 	struct dentry *root;
 
@@ -74,7 +93,7 @@ static int configfs_fill_super(struct super_block *sb, struct fs_context *fc)
 	sb->s_time_gran = 1;
 
 	inode = configfs_new_inode(S_IFDIR | S_IRWXU | S_IRUGO | S_IXUGO,
-				   &configfs_root, sb);
+				   &info->root, sb);
 	if (inode) {
 		inode->i_op = &configfs_root_inode_operations;
 		inode->i_fop = &configfs_dir_operations;
@@ -90,9 +109,9 @@ static int configfs_fill_super(struct super_block *sb, struct fs_context *fc)
 		pr_debug("%s: could not get root dentry!\n",__func__);
 		return -ENOMEM;
 	}
-	config_group_init(&configfs_root_group);
-	configfs_root_group.cg_item.ci_dentry = root;
-	root->d_fsdata = &configfs_root;
+	config_group_init(&info->group);
+	info->group.cg_item.ci_dentry = root;
+	root->d_fsdata = &info->root;
 	sb->s_root = root;
 	set_default_d_op(sb, &configfs_dentry_ops); /* the rest get that */
 	sb->s_d_flags |= DCACHE_DONTCACHE;
@@ -101,11 +120,32 @@ static int configfs_fill_super(struct super_block *sb, struct fs_context *fc)
 
 static int configfs_get_tree(struct fs_context *fc)
 {
-	return get_tree_single(fc, configfs_fill_super);
+	struct configfs_super_info *info;
+	int err;
+
+	info = configfs_get_root(NULL);
+	if (IS_ERR(info))
+		return PTR_ERR(info);
+
+	err = get_tree_keyed(fc, configfs_fill_super, info);
+	if (err < 0)
+		configfs_put_root(info);
+	return err;
+}
+
+static void configfs_fs_context_free(struct fs_context *fc)
+{
+	if (fc->s_fs_info) {
+		struct configfs_super_info *info = fc->s_fs_info;
+
+		configfs_put_root(info);
+		fc->s_fs_info = NULL;
+	}
 }
 
 static const struct fs_context_operations configfs_context_ops = {
 	.get_tree	= configfs_get_tree,
+	.free		= configfs_fs_context_free,
 };
 
 static int configfs_init_fs_context(struct fs_context *fc)
@@ -114,24 +154,32 @@ static int configfs_init_fs_context(struct fs_context *fc)
 	return 0;
 }
 
+static void configfs_kill_sb(struct super_block *sb)
+{
+	struct configfs_super_info *info = sb->s_fs_info;
+
+	kill_anon_super(sb);
+	configfs_put_root(info);
+}
+
 static struct file_system_type configfs_fs_type = {
 	.owner		= THIS_MODULE,
 	.name		= "configfs",
 	.init_fs_context = configfs_init_fs_context,
-	.kill_sb	= kill_anon_super,
+	.kill_sb	= configfs_kill_sb,
 };
 MODULE_ALIAS_FS("configfs");
 
 struct dentry *configfs_pin_fs(void)
 {
-	int err = simple_pin_fs(&configfs_fs_type, &configfs_mount,
-			     &configfs_mnt_count);
-	return err ? ERR_PTR(err) : configfs_mount->mnt_root;
+	int err = simple_pin_fs(&configfs_fs_type, &configfs_root->mnt,
+			     &configfs_root->mnt_count);
+	return err ? ERR_PTR(err) : configfs_root->mnt->mnt_root;
 }
 
 void configfs_release_fs(void)
 {
-	simple_release_fs(&configfs_mount, &configfs_mnt_count);
+	simple_release_fs(&configfs_root->mnt, &configfs_root->mnt_count);
 }
 
 
@@ -153,7 +201,14 @@ static int __init configfs_init(void)
 	if (err)
 		goto out3;
 
+	configfs_root = configfs_get_root(NULL);
+	if (!configfs_root)
+		goto out4;
+
 	return 0;
+out4:
+	pr_err("Unable to get initlal root context\n");
+	unregister_filesystem(&configfs_fs_type);
 out3:
 	pr_err("Unable to register filesystem!\n");
 	sysfs_remove_mount_point(kernel_kobj, "config");
@@ -166,6 +221,7 @@ out:
 
 static void __exit configfs_exit(void)
 {
+	configfs_put_root(configfs_root);
 	unregister_filesystem(&configfs_fs_type);
 	sysfs_remove_mount_point(kernel_kobj, "config");
 	kmem_cache_destroy(configfs_dir_cachep);
