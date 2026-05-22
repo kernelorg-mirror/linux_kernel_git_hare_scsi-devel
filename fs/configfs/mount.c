@@ -17,12 +17,14 @@
 #include <linux/slab.h>
 
 #include <linux/configfs.h>
+#include <linux/mnt_namespace.h>
 #include "configfs_internal.h"
 
 /* Random magic number */
 #define CONFIGFS_MAGIC 0x62656570
 
 struct kmem_cache *configfs_dir_cachep;
+static DEFINE_IDR(configfs_super_idr);
 static struct configfs_super_info *configfs_root = NULL;
 
 static void configfs_free_inode(struct inode *inode)
@@ -56,35 +58,74 @@ static void configfs_fill_root(struct configfs_super_info *info)
 	config_group_init(&info->group);
 	INIT_LIST_HEAD(&info->subsys_list);
 	mutex_init(&info->subsys_mutex);
+	refcount_set(&info->mnt_ref, 0);
 }
 
 struct configfs_super_info *configfs_get_root(struct ns_common *ns)
 {
 	struct configfs_super_info *info;
+	u64 ns_id = 0;
+	int err;
 
-	if (configfs_root)
-		return configfs_root;
-
+	if (!ns) {
+		ns = from_mnt_ns(current->nsproxy->mnt_ns);
+		if (WARN_ON(!is_ns_init_id(ns)))
+			return ERR_PTR(-EINVAL);
+	}
+	if (is_ns_init_id(ns))
+		ns_id = ns->ns_id;
+	info = idr_find(&configfs_super_idr, ns_id);
+	if (info) {
+		__ns_ref_inc(ns);
+		pr_info("%s: use ns %llu\n",
+			__func__, ns_id);
+		return info;
+	}
 	info = kzalloc_obj(*info);
 	if (!info)
 		return ERR_PTR(-ENOMEM);
 
 	configfs_fill_root(info);
+	err = idr_alloc(&configfs_super_idr, info,
+			ns_id, ns_id + 1, GFP_KERNEL);
+	if (err < 0) {
+		kfree(info);
+		return ERR_PTR(err);
+	}
+	WARN_ON(err != ns_id);
+	__ns_ref_inc(ns);
+	info->ns = ns;
+	pr_info("%s: alloc ns %llu\n", __func__, ns_id);
 	return info;
 }
 
 void configfs_put_root(struct configfs_super_info *info)
 {
-	if (info != configfs_root)
+	struct ns_common *ns = info->ns;
+	u64 ns_id = 0;
+
+	if (WARN_ON(!ns))
+		return;
+	if (!is_ns_init_id(ns))
+		ns_id = ns->ns_id;
+	if (!__ns_ref_put(ns)) {
+		pr_info("%s: ns %llu free fs info\n",
+			__func__, ns_id);
+		idr_remove(&configfs_super_idr, ns_id);
+		WARN_ON(!list_empty(&info->subsys_list));
 		kfree(info);
+	}
 }
 
 static int configfs_fill_super(struct super_block *sb, struct fs_context *fc)
 {
+	struct ns_common *ns = fc->fs_private;
 	struct configfs_super_info *info =
 		(struct configfs_super_info *)sb->s_fs_info;
 	struct inode *inode;
 	struct dentry *root;
+
+	pr_info("%s: ns %llu\n", __func__, ns->ns_id);
 
 	sb->s_blocksize = PAGE_SIZE;
 	sb->s_blocksize_bits = PAGE_SHIFT;
@@ -115,15 +156,19 @@ static int configfs_fill_super(struct super_block *sb, struct fs_context *fc)
 	sb->s_root = root;
 	set_default_d_op(sb, &configfs_dentry_ops); /* the rest get that */
 	sb->s_d_flags |= DCACHE_DONTCACHE;
+
+	configfs_link_subsystems(sb, info);
+
 	return 0;
 }
 
 static int configfs_get_tree(struct fs_context *fc)
 {
+	struct ns_common *ns = fc->fs_private;
 	struct configfs_super_info *info;
 	int err;
 
-	info = configfs_get_root(NULL);
+	info = configfs_get_root(ns);
 	if (IS_ERR(info))
 		return PTR_ERR(info);
 
@@ -135,6 +180,13 @@ static int configfs_get_tree(struct fs_context *fc)
 
 static void configfs_fs_context_free(struct fs_context *fc)
 {
+	struct ns_common *ns = fc->fs_private;
+
+	pr_info("%s: ns %llu\n", __func__, ns->ns_id);
+	if (__ns_ref_put(ns))
+		pr_debug("%s: drop ns\n", __func__);
+	fc->fs_private = NULL;
+
 	if (fc->s_fs_info) {
 		struct configfs_super_info *info = fc->s_fs_info;
 
@@ -150,6 +202,12 @@ static const struct fs_context_operations configfs_context_ops = {
 
 static int configfs_init_fs_context(struct fs_context *fc)
 {
+	struct ns_common *ns = from_mnt_ns(current->nsproxy->mnt_ns);
+
+	if (!__ns_ref_get(ns))
+		return -EAGAIN;
+
+	fc->fs_private = ns;
 	fc->ops = &configfs_context_ops;
 	return 0;
 }
@@ -158,6 +216,8 @@ static void configfs_kill_sb(struct super_block *sb)
 {
 	struct configfs_super_info *info = sb->s_fs_info;
 
+	pr_info("%s: ns %llu\n", __func__, info->ns->ns_id);
+	configfs_unlink_subsystems(sb, info);
 	kill_anon_super(sb);
 	configfs_put_root(info);
 }
@@ -167,21 +227,46 @@ static struct file_system_type configfs_fs_type = {
 	.name		= "configfs",
 	.init_fs_context = configfs_init_fs_context,
 	.kill_sb	= configfs_kill_sb,
+	.fs_flags	= FS_USERNS_MOUNT,
 };
 MODULE_ALIAS_FS("configfs");
 
 struct dentry *configfs_pin_fs(void)
 {
-	int err = simple_pin_fs(&configfs_fs_type, &configfs_root->mnt,
-			     &configfs_root->mnt_count);
-	return err ? ERR_PTR(err) : configfs_root->mnt->mnt_root;
+	struct configfs_super_info *info;
+
+	info = configfs_get_root(NULL);
+	if (WARN_ON(!info))
+		return ERR_PTR(-EAGAIN);
+
+	if (!info->mnt) {
+		struct vfsmount *mnt;
+
+		mnt = vfs_kern_mount(&configfs_fs_type, SB_KERNMOUNT,
+					   configfs_fs_type.name, NULL);
+		if (IS_ERR(mnt))
+			return ERR_CAST(mnt);
+		info->mnt = mnt;
+	}
+	refcount_inc(&info->mnt_ref);
+	mntget(info->mnt);
+	return info->mnt->mnt_root;
 }
 
 void configfs_release_fs(void)
 {
-	simple_release_fs(&configfs_root->mnt, &configfs_root->mnt_count);
-}
+	struct configfs_super_info *info = configfs_get_root(NULL);
+	struct vfsmount *mnt = info->mnt;
 
+	if (WARN_ON(!mnt)) {
+		configfs_put_root(info);
+		return;
+	}
+	if (!refcount_dec_and_test(&info->mnt_ref))
+		info->mnt = NULL;
+	mntput(mnt);
+	configfs_put_root(info);
+}
 
 static int __init configfs_init(void)
 {

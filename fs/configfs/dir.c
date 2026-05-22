@@ -1895,18 +1895,61 @@ static int configfs_link_root(struct dentry *root, struct config_group *group)
 
 int configfs_register_subsystem(struct configfs_subsystem *subsys)
 {
+	struct configfs_super_info *info = configfs_get_root(NULL);
 	struct dentry *root;
 	int err;
 
+	if (subsys->fill_subsystem) {
+		err = subsys->fill_subsystem(subsys, info->ns);
+		if (err)
+			return err;
+	}
 	root = configfs_pin_fs();
-	if (IS_ERR(root))
+	if (IS_ERR(root)) {
+		configfs_put_root(info);
 		return PTR_ERR(root);
+	}
 
 	err = configfs_link_root(root, &subsys->su_group);
 	if (err < 0)
 		configfs_release_fs();
 
+	configfs_put_root(info);
 	return err;
+}
+
+void configfs_link_subsystems(struct super_block *sb,
+			      struct configfs_super_info *info)
+{
+	struct configfs_subsystem *subsys, *s;
+	struct configfs_super_info *root = configfs_get_root(NULL);
+
+	mutex_lock(&root->subsys_mutex);
+	list_for_each_entry(s, &root->subsys_list, su_link) {
+		int err;
+
+		if (!s->fill_subsystem)
+			continue;
+		subsys = kzalloc_obj(*subsys);
+		if (!subsys)
+			continue;
+		err = s->fill_subsystem(subsys, info->ns);
+		if (err) {
+			kfree(subsys);
+			continue;
+		}
+		refcount_inc(&info->mnt_ref);
+		dget(sb->s_root);
+		err = configfs_link_root(sb->s_root, &subsys->su_group);
+		if (err) {
+			dput(sb->s_root);
+			refcount_dec(&info->mnt_ref);
+			kfree(subsys);
+			continue;
+		}
+	}
+	mutex_unlock(&root->subsys_mutex);
+	configfs_put_root(root);
 }
 
 static void configfs_unlink_root(struct config_group *group,
@@ -1947,6 +1990,25 @@ static void configfs_unlink_root(struct config_group *group,
 	inode_unlock(d_inode(root));
 
 	dput(dentry);
+}
+
+void configfs_unlink_subsystems(struct super_block *sb,
+				struct configfs_super_info *info)
+{
+	struct configfs_subsystem *subsys, *s;
+
+	mutex_lock(&info->subsys_mutex);
+	list_for_each_entry_safe(subsys, s, &info->subsys_list, su_link) {
+		list_del_init(&subsys->su_link);
+		configfs_unlink_root(&subsys->su_group, info);
+		mutex_lock(&subsys->su_mutex);
+		unlink_group(&subsys->su_group);
+		mutex_unlock(&subsys->su_mutex);
+		refcount_dec(&info->mnt_ref);
+		dput(sb->s_root);
+		kfree(subsys);
+	}
+	mutex_unlock(&info->subsys_mutex);
 }
 
 void configfs_unregister_subsystem(struct configfs_subsystem *subsys)
