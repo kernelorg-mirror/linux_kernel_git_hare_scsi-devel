@@ -34,14 +34,6 @@
  */
 DEFINE_SPINLOCK(configfs_dirent_lock);
 
-/*
- * All of link_obj/unlink_obj/link_group/unlink_group require that
- * subsys->su_mutex is held.
- * But parent configfs_subsystem is NULL when config_item is root.
- * Use this mutex when config_item is root.
- */
-static DEFINE_MUTEX(configfs_subsystem_mutex);
-
 static void configfs_d_iput(struct dentry * dentry,
 			    struct inode * inode)
 {
@@ -1841,20 +1833,27 @@ EXPORT_SYMBOL(configfs_unregister_default_group);
 
 int configfs_register_subsystem(struct configfs_subsystem *subsys)
 {
-	int err;
+	struct configfs_super_info *info = configfs_get_super_info(0);
 	struct config_group *group = &subsys->su_group;
 	struct dentry *dentry;
 	struct dentry *root;
 	struct configfs_dirent *sd;
 	struct configfs_fragment *frag;
+	int err;
+
+	if (IS_ERR(info))
+		return PTR_ERR(info);
 
 	frag = new_fragment();
-	if (!frag)
+	if (!frag) {
+		configfs_put_super_info(info);
 		return -ENOMEM;
+	}
 
 	root = configfs_pin_fs();
 	if (IS_ERR(root)) {
 		put_fragment(frag);
+		configfs_put_super_info(info);
 		return PTR_ERR(root);
 	}
 
@@ -1862,9 +1861,9 @@ int configfs_register_subsystem(struct configfs_subsystem *subsys)
 		group->cg_item.ci_name = group->cg_item.ci_namebuf;
 
 	sd = root->d_fsdata;
-	mutex_lock(&configfs_subsystem_mutex);
+	mutex_lock(&info->subsys_mutex);
 	link_group(to_config_group(sd->s_element), group);
-	mutex_unlock(&configfs_subsystem_mutex);
+	mutex_unlock(&info->subsys_mutex);
 
 	inode_lock_nested(d_inode(root), I_MUTEX_PARENT);
 
@@ -1892,26 +1891,32 @@ int configfs_register_subsystem(struct configfs_subsystem *subsys)
 	inode_unlock(d_inode(root));
 
 	if (err) {
-		mutex_lock(&configfs_subsystem_mutex);
+		mutex_lock(&info->subsys_mutex);
 		unlink_group(group);
-		mutex_unlock(&configfs_subsystem_mutex);
+		mutex_unlock(&info->subsys_mutex);
 		configfs_release_fs();
 	}
 	put_fragment(frag);
-
+	configfs_put_super_info(info);
 	return err;
 }
 
 void configfs_unregister_subsystem(struct configfs_subsystem *subsys)
 {
+	struct configfs_super_info *info = configfs_get_super_info(0);
 	struct config_group *group = &subsys->su_group;
 	struct dentry *dentry = dget(group->cg_item.ci_dentry);
 	struct dentry *root = dentry->d_sb->s_root;
 	struct configfs_dirent *sd = dentry->d_fsdata;
 	struct configfs_fragment *frag = sd->s_frag;
 
+	if (WARN_ON(IS_ERR(info)))
+		return;
+
 	if (dentry->d_parent != root) {
 		pr_err("Tried to unregister non-subsystem!\n");
+		dput(dentry);
+		configfs_put_super_info(info);
 		return;
 	}
 
@@ -1941,10 +1946,11 @@ void configfs_unregister_subsystem(struct configfs_subsystem *subsys)
 
 	dput(dentry);
 
-	mutex_lock(&configfs_subsystem_mutex);
+	mutex_lock(&info->subsys_mutex);
 	unlink_group(group);
-	mutex_unlock(&configfs_subsystem_mutex);
+	mutex_unlock(&info->subsys_mutex);
 	configfs_release_fs();
+	configfs_put_super_info(info);
 }
 
 EXPORT_SYMBOL(configfs_register_subsystem);
