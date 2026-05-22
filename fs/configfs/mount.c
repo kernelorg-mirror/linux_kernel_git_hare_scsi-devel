@@ -49,7 +49,9 @@ static struct config_group configfs_root_group = {
 
 int configfs_is_root(struct config_item *item)
 {
-	return item == &configfs_root_group.cg_item;
+	struct configfs_dirent *sd =
+		item->ci_dentry->d_fsdata;
+	return sd->s_type == CONFIGFS_ROOT;
 }
 
 static struct configfs_dirent configfs_root = {
