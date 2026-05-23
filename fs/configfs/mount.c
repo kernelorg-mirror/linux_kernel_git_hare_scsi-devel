@@ -27,6 +27,13 @@ struct kmem_cache *configfs_dir_cachep;
 static DEFINE_IDR(configfs_super_idr);
 static struct configfs_super_info *configfs_root = NULL;
 
+static u64 configfs_ns_id(struct ns_common *ns)
+{
+	if (!ns || is_ns_init_id(ns))
+		return 0;
+	return ns->ns_id;
+}
+
 static void configfs_free_inode(struct inode *inode)
 {
 	if (S_ISLNK(inode->i_mode))
@@ -72,8 +79,7 @@ struct configfs_super_info *configfs_get_root(struct ns_common *ns)
 		if (WARN_ON(!is_ns_init_id(ns)))
 			return ERR_PTR(-EINVAL);
 	}
-	if (!is_ns_init_id(ns))
-		ns_id = ns->ns_id;
+	ns_id = configfs_ns_id(ns);
 	info = idr_find(&configfs_super_idr, ns_id);
 	if (info) {
 		__ns_ref_inc(ns);
@@ -106,9 +112,8 @@ void configfs_put_root(struct configfs_super_info *info)
 
 	if (WARN_ON(!ns))
 		return;
-	if (!is_ns_init_id(ns))
-		ns_id = ns->ns_id;
-	if (!__ns_ref_put(ns)) {
+	ns_id = configfs_ns_id(ns);
+	if (__ns_ref_put(ns)) {
 		pr_info("%s: ns %llu free fs info\n",
 			__func__, ns_id);
 		idr_remove(&configfs_super_idr, ns_id);
@@ -124,8 +129,9 @@ static int configfs_fill_super(struct super_block *sb, struct fs_context *fc)
 		(struct configfs_super_info *)sb->s_fs_info;
 	struct inode *inode;
 	struct dentry *root;
+	u64 ns_id = configfs_ns_id(ns);
 
-	pr_info("%s: ns %llu\n", __func__, ns->ns_id);
+	pr_info("%s: ns %llu\n", __func__, ns_id);
 
 	sb->s_blocksize = PAGE_SIZE;
 	sb->s_blocksize_bits = PAGE_SHIFT;
@@ -166,23 +172,20 @@ static int configfs_get_tree(struct fs_context *fc)
 {
 	struct ns_common *ns = fc->fs_private;
 	struct configfs_super_info *info;
-	int err;
 
 	info = configfs_get_root(ns);
 	if (IS_ERR(info))
 		return PTR_ERR(info);
 
-	err = get_tree_keyed(fc, configfs_fill_super, info);
-	if (err < 0)
-		configfs_put_root(info);
-	return err;
+	return get_tree_keyed(fc, configfs_fill_super, info);
 }
 
 static void configfs_fs_context_free(struct fs_context *fc)
 {
 	struct ns_common *ns = fc->fs_private;
+	u64 ns_id = configfs_ns_id(ns);
 
-	pr_info("%s: ns %llu\n", __func__, ns->ns_id);
+	pr_info("%s: ns %llu\n", __func__, ns_id);
 	if (__ns_ref_put(ns))
 		pr_debug("%s: drop ns\n", __func__);
 	fc->fs_private = NULL;
