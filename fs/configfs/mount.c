@@ -65,7 +65,7 @@ static void configfs_fill_root(struct configfs_super_info *info)
 	config_group_init(&info->group);
 	INIT_LIST_HEAD(&info->subsys_list);
 	mutex_init(&info->subsys_mutex);
-	refcount_set(&info->mnt_ref, 0);
+	refcount_set(&info->mnt_ref, 1);
 }
 
 struct configfs_super_info *configfs_get_root(struct ns_common *ns)
