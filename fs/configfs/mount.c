@@ -72,7 +72,7 @@ struct configfs_super_info *configfs_get_root(struct ns_common *ns)
 		if (WARN_ON(!is_ns_init_id(ns)))
 			return ERR_PTR(-EINVAL);
 	}
-	if (is_ns_init_id(ns))
+	if (!is_ns_init_id(ns))
 		ns_id = ns->ns_id;
 	info = idr_find(&configfs_super_idr, ns_id);
 	if (info) {
