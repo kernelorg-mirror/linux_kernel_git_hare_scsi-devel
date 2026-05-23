@@ -74,15 +74,10 @@ struct configfs_super_info *configfs_get_root(struct ns_common *ns)
 	u64 ns_id = 0;
 	int err;
 
-	if (!ns) {
-		ns = from_mnt_ns(current->nsproxy->mnt_ns);
-		if (WARN_ON(!is_ns_init_id(ns)))
-			return ERR_PTR(-EINVAL);
-	}
 	ns_id = configfs_ns_id(ns);
 	info = idr_find(&configfs_super_idr, ns_id);
 	if (info) {
-		__ns_ref_inc(ns);
+		__ns_ref_inc(info->ns);
 		pr_info("%s: use ns %llu\n",
 			__func__, ns_id);
 		return info;
@@ -99,6 +94,10 @@ struct configfs_super_info *configfs_get_root(struct ns_common *ns)
 		return ERR_PTR(err);
 	}
 	WARN_ON(err != ns_id);
+	if (!ns) {
+		ns = from_mnt_ns(current->nsproxy->mnt_ns);
+		WARN_ON(!is_ns_init_id(ns));
+	}
 	__ns_ref_inc(ns);
 	info->ns = ns;
 	pr_info("%s: alloc ns %llu\n", __func__, ns_id);
@@ -112,7 +111,7 @@ void configfs_put_root(struct configfs_super_info *info)
 
 	if (WARN_ON(!ns))
 		return;
-	ns_id = configfs_ns_id(ns);
+
 	if (__ns_ref_put(ns)) {
 		pr_info("%s: ns %llu free fs info\n",
 			__func__, ns_id);
@@ -343,7 +342,8 @@ out:
 
 static void __exit configfs_exit(void)
 {
-	configfs_put_root(configfs_root);
+	idr_remove(&configfs_super_idr, 0);
+	kfree(configfs_root);
 	unregister_filesystem(&configfs_fs_type);
 	sysfs_remove_mount_point(kernel_kobj, "config");
 	kmem_cache_destroy(configfs_dir_cachep);
