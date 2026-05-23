@@ -1122,7 +1122,7 @@ int configfs_depend_item(struct configfs_subsystem *subsys,
 	 * Pin the configfs filesystem.  This means we can safely access
 	 * the root of the configfs filesystem.
 	 */
-	root = configfs_pin_fs();
+	root = configfs_pin_fs(NULL);
 	if (IS_ERR(root))
 		return PTR_ERR(root);
 
@@ -1149,7 +1149,7 @@ out_unlock_fs:
 	 * If we succeeded, the fs is pinned via other methods.  If not,
 	 * we're done with it anyway.  So release_fs() is always right.
 	 */
-	configfs_release_fs();
+	configfs_release_fs(NULL);
 
 	return ret;
 }
@@ -1904,7 +1904,7 @@ int configfs_register_subsystem(struct configfs_subsystem *subsys)
 		if (err)
 			return err;
 	}
-	root = configfs_pin_fs();
+	root = configfs_pin_fs(NULL);
 	if (IS_ERR(root)) {
 		configfs_put_root(info);
 		return PTR_ERR(root);
@@ -1912,7 +1912,7 @@ int configfs_register_subsystem(struct configfs_subsystem *subsys)
 
 	err = configfs_link_root(root, &subsys->su_group);
 	if (err < 0)
-		configfs_release_fs();
+		configfs_release_fs(NULL);
 
 	configfs_put_root(info);
 	return err;
@@ -1926,6 +1926,7 @@ void configfs_link_subsystems(struct super_block *sb,
 
 	mutex_lock(&root->subsys_mutex);
 	list_for_each_entry(s, &root->subsys_list, su_link) {
+		struct dentry *dentry;
 		int err;
 
 		if (!s->fill_subsystem)
@@ -1933,17 +1934,25 @@ void configfs_link_subsystems(struct super_block *sb,
 		subsys = kzalloc_obj(*subsys);
 		if (!subsys)
 			continue;
+		subsys->fill_subsystem = s->fill_subsystem;
+		subsys->clear_subsystem = s->clear_subsystem;
+		INIT_LIST_HEAD(&subsys->su_link);
+		mutex_init(&subsys->su_mutex);
 		err = s->fill_subsystem(subsys, info->ns);
 		if (err) {
 			kfree(subsys);
 			continue;
 		}
-		refcount_inc(&info->mnt_ref);
-		dget(sb->s_root);
-		err = configfs_link_root(sb->s_root, &subsys->su_group);
+		dentry = configfs_pin_fs(sb);
+		if (IS_ERR(dentry)) {
+			s->clear_subsystem(subsys, info->ns);
+			kfree(subsys);
+			continue;
+		}
+		err = configfs_link_root(dentry, &subsys->su_group);
 		if (err) {
-			dput(sb->s_root);
-			refcount_dec(&info->mnt_ref);
+			configfs_release_fs(sb);
+			s->clear_subsystem(subsys, info->ns);
 			kfree(subsys);
 			continue;
 		}
@@ -2001,11 +2010,11 @@ void configfs_unlink_subsystems(struct super_block *sb,
 	list_for_each_entry_safe(subsys, s, &info->subsys_list, su_link) {
 		list_del_init(&subsys->su_link);
 		configfs_unlink_root(&subsys->su_group, info);
+		configfs_release_fs(sb);
+		subsys->clear_subsystem(subsys, info->ns);
 		mutex_lock(&subsys->su_mutex);
 		unlink_group(&subsys->su_group);
 		mutex_unlock(&subsys->su_mutex);
-		refcount_dec(&info->mnt_ref);
-		dput(sb->s_root);
 		kfree(subsys);
 	}
 	mutex_unlock(&info->subsys_mutex);
@@ -2016,12 +2025,14 @@ void configfs_unregister_subsystem(struct configfs_subsystem *subsys)
 	struct config_group *group = &subsys->su_group;
 	struct configfs_super_info *info = configfs_get_root(NULL);
 
+	if (subsys->clear_subsystem)
+		subsys->clear_subsystem(subsys, NULL);
 	configfs_unlink_root(group, info);
 
 	mutex_lock(&configfs_subsystem_mutex);
 	unlink_group(group);
 	mutex_unlock(&configfs_subsystem_mutex);
-	configfs_release_fs();
+	configfs_release_fs(NULL);
 	configfs_put_root(info);
 }
 

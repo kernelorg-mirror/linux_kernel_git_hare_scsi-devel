@@ -231,37 +231,56 @@ static struct file_system_type configfs_fs_type = {
 };
 MODULE_ALIAS_FS("configfs");
 
-struct dentry *configfs_pin_fs(void)
+struct dentry *configfs_pin_fs(struct super_block *sb)
 {
 	struct configfs_super_info *info;
+	struct vfsmount *mnt;
 
-	info = configfs_get_root(NULL);
-	if (WARN_ON(!info))
-		return ERR_PTR(-EAGAIN);
+	if (!sb) {
+		info = configfs_get_root(NULL);
+		if (WARN_ON(!info))
+			return ERR_PTR(-EAGAIN);
+	} else
+		info = sb->s_fs_info;
 
-	if (!info->mnt) {
-		struct vfsmount *mnt;
+	if (info->mnt)
+		goto get_mount;
 
+	if (!sb) {
 		mnt = vfs_kern_mount(&configfs_fs_type, SB_KERNMOUNT,
 					   configfs_fs_type.name, NULL);
 		if (IS_ERR(mnt))
 			return ERR_CAST(mnt);
 		info->mnt = mnt;
+	} else {
+		struct fs_context *fc =
+			fs_context_for_submount(&configfs_fs_type,
+						sb->s_root);
+		mnt = fc_mount(fc);
+		if (IS_ERR(mnt)) {
+			put_fs_context(fc);
+			return ERR_CAST(mnt);
+		}
+		info->mnt = mnt;
+		put_fs_context(fc);
 	}
+get_mount:
 	refcount_inc(&info->mnt_ref);
 	mntget(info->mnt);
 	return info->mnt->mnt_root;
 }
 
-void configfs_release_fs(void)
+void configfs_release_fs(struct super_block *sb)
 {
-	struct configfs_super_info *info = configfs_get_root(NULL);
-	struct vfsmount *mnt = info->mnt;
+	struct configfs_super_info *info;
+	struct vfsmount *mnt;
 
-	if (WARN_ON(!mnt)) {
-		configfs_put_root(info);
-		return;
-	}
+	if (!sb)
+		info = configfs_get_root(NULL);
+	else
+		info = sb->s_fs_info;
+	mnt = info->mnt;
+	WARN_ON(!mnt);
 	if (!refcount_dec_and_test(&info->mnt_ref))
 		info->mnt = NULL;
 	mntput(mnt);
