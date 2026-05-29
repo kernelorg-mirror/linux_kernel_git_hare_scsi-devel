@@ -388,7 +388,7 @@ static void tree_nodes_free(struct rb_root *root,
 static void schedule_gc_worker(struct nf_conncount_data *data, int tree)
 {
 	set_bit(tree, data->pending_trees);
-	schedule_work(&data->gc_work);
+	queue_work(system_unbound_wq, &data->gc_work);
 }
 
 static unsigned int
@@ -599,7 +599,7 @@ next:
 
 	if (next_tree < CONNCOUNT_SLOTS) {
 		data->gc_tree = next_tree;
-		schedule_work(work);
+		queue_work(system_unbound_wq, work);
 	}
 
 	spin_unlock_bh(&nf_conncount_locks[tree]);
