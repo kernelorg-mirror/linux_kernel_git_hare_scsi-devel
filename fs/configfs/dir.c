@@ -1899,6 +1899,8 @@ int configfs_register_subsystem(struct configfs_subsystem *subsys)
 	struct dentry *root;
 	int err;
 
+	if (WARN_ON(IS_ERR(info)))
+		return PTR_ERR(info);
 	if (subsys->fill_subsystem) {
 		err = subsys->fill_subsystem(subsys, info->ns);
 		if (err)
@@ -1924,6 +1926,8 @@ void configfs_link_subsystems(struct super_block *sb,
 	struct configfs_subsystem *subsys, *s;
 	struct configfs_super_info *root = configfs_get_root(NULL);
 
+	if (WARN_ON(IS_ERR(root)))
+		return;
 	mutex_lock(&root->subsys_mutex);
 	list_for_each_entry(s, &root->subsys_list, su_link) {
 		struct dentry *dentry;
@@ -2025,6 +2029,8 @@ void configfs_unregister_subsystem(struct configfs_subsystem *subsys)
 	struct config_group *group = &subsys->su_group;
 	struct configfs_super_info *info = configfs_get_root(NULL);
 
+	if (WARN_ON(IS_ERR(info)))
+		return;
 	if (subsys->clear_subsystem)
 		subsys->clear_subsystem(subsys, NULL);
 	configfs_unlink_root(group, info);

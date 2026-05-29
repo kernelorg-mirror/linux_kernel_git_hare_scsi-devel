@@ -242,6 +242,8 @@ struct dentry *configfs_pin_fs(struct super_block *sb)
 	if (sb) {
 		struct configfs_super_info *root = configfs_get_root(NULL);
 
+		if (WARN_ON(IS_ERR(root)))
+			return ERR_CAST(root);
 		info = sb->s_fs_info;
 		dentry = sb->s_root;
 		dget(dentry);
@@ -250,8 +252,8 @@ struct dentry *configfs_pin_fs(struct super_block *sb)
 		goto get_mount;
 	}
 	info = configfs_get_root(NULL);
-	if (WARN_ON(!info))
-		return ERR_PTR(-EAGAIN);
+	if (WARN_ON(IS_ERR(info)))
+		return ERR_CAST(info);
 
 	if (!info->mnt) {
 		mnt = vfs_kern_mount(&configfs_fs_type, SB_KERNMOUNT,
@@ -272,9 +274,11 @@ void configfs_release_fs(struct super_block *sb)
 	struct configfs_super_info *info;
 	struct vfsmount *mnt;
 
-	if (!sb)
+	if (!sb) {
 		info = configfs_get_root(NULL);
-	else {
+		if (WARN_ON(IS_ERR(info)))
+			return;
+	} else {
 		info = sb->s_fs_info;
 		dput(sb->s_root);
 	}
@@ -320,9 +324,10 @@ static int __init configfs_init(void)
 		goto out3;
 
 	configfs_root = configfs_get_root(NULL);
-	if (!configfs_root)
+	if (IS_ERR(configfs_root)) {
+		err = PTR_ERR(configfs_root);
 		goto out4;
-
+	}
 	return 0;
 out4:
 	pr_err("Unable to get initlal root context\n");
