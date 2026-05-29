@@ -237,39 +237,34 @@ struct dentry *configfs_pin_fs(struct super_block *sb)
 {
 	struct configfs_super_info *info;
 	struct vfsmount *mnt;
+	struct dentry *dentry;
 
-	if (!sb) {
-		info = configfs_get_root(NULL);
-		if (WARN_ON(!info))
-			return ERR_PTR(-EAGAIN);
-	} else
+	if (sb) {
+		struct configfs_super_info *root = configfs_get_root(NULL);
+
 		info = sb->s_fs_info;
-
-	if (info->mnt)
+		dentry = sb->s_root;
+		dget(dentry);
+		info->mnt = root->mnt;
+		configfs_put_root(root);
 		goto get_mount;
+	}
+	info = configfs_get_root(NULL);
+	if (WARN_ON(!info))
+		return ERR_PTR(-EAGAIN);
 
-	if (!sb) {
+	if (!info->mnt) {
 		mnt = vfs_kern_mount(&configfs_fs_type, SB_KERNMOUNT,
-					   configfs_fs_type.name, NULL);
+				     configfs_fs_type.name, NULL);
 		if (IS_ERR(mnt))
 			return ERR_CAST(mnt);
 		info->mnt = mnt;
-	} else {
-		struct fs_context *fc =
-			fs_context_for_submount(&configfs_fs_type,
-						sb->s_root);
-		mnt = fc_mount(fc);
-		if (IS_ERR(mnt)) {
-			put_fs_context(fc);
-			return ERR_CAST(mnt);
-		}
-		info->mnt = mnt;
-		put_fs_context(fc);
+		dentry = info->mnt->mnt_root;
 	}
 get_mount:
 	refcount_inc(&info->mnt_ref);
 	mntget(info->mnt);
-	return info->mnt->mnt_root;
+	return dentry;
 }
 
 void configfs_release_fs(struct super_block *sb)
@@ -279,8 +274,10 @@ void configfs_release_fs(struct super_block *sb)
 
 	if (!sb)
 		info = configfs_get_root(NULL);
-	else
+	else {
 		info = sb->s_fs_info;
+		dput(sb->s_root);
+	}
 	mnt = info->mnt;
 	WARN_ON(!mnt);
 	if (!refcount_dec_and_test(&info->mnt_ref))
