@@ -14,7 +14,7 @@ static DEFINE_MUTEX(nvmet_disc_mutex);
 struct nvmet_subsys *nvmet_get_disc_subsys(struct ns_common *ns)
 {
 	struct nvmet_subsys *subsys;
-	u64 ns_id;
+	u64 ns_id = 0;
 
 	if (ns && is_ns_init_id(ns))
 		ns = NULL;
