@@ -261,8 +261,9 @@ struct dentry *configfs_pin_fs(struct super_block *sb)
 		if (IS_ERR(mnt))
 			return ERR_CAST(mnt);
 		info->mnt = mnt;
-		dentry = info->mnt->mnt_root;
 	}
+	dentry = info->mnt->mnt_root;
+
 get_mount:
 	refcount_inc(&info->mnt_ref);
 	mntget(info->mnt);
