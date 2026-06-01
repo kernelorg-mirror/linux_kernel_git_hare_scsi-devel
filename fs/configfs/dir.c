@@ -1901,21 +1901,26 @@ int configfs_register_subsystem(struct configfs_subsystem *subsys)
 
 	if (WARN_ON(IS_ERR(info)))
 		return PTR_ERR(info);
+
 	if (subsys->fill_subsystem) {
 		err = subsys->fill_subsystem(subsys, info->ns);
 		if (err)
-			return err;
+			goto out_put;
 	}
 	root = configfs_pin_fs(NULL);
 	if (IS_ERR(root)) {
-		configfs_put_root(info);
-		return PTR_ERR(root);
+		err = PTR_ERR(root);
+		goto out_put;
 	}
 
 	err = configfs_link_root(root, &subsys->su_group);
-	if (err < 0)
-		configfs_release_fs(NULL);
+	if (err)
+		goto out_put;
 
+	mutex_lock(&info->subsys_mutex);
+	list_add(&subsys->su_link, &info->subsys_list);
+	mutex_unlock(&info->subsys_mutex);
+out_put:
 	configfs_put_root(info);
 	return err;
 }
@@ -1960,6 +1965,9 @@ void configfs_link_subsystems(struct super_block *sb,
 			kfree(subsys);
 			continue;
 		}
+		mutex_lock(&info->subsys_mutex);
+		list_add(&subsys->su_link, &info->subsys_list);
+		mutex_unlock(&info->subsys_mutex);
 	}
 	mutex_unlock(&root->subsys_mutex);
 	configfs_put_root(root);
