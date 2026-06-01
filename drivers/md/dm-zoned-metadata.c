@@ -1329,7 +1329,6 @@ static int dmz_load_sb(struct dmz_metadata *zmd)
 			if (ret) {
 				dmz_dev_err(sb->dev,
 					    "Read tertiary super block failed");
-				dmz_free_mblock(zmd, sb->mblk);
 				goto out_kfree;
 			}
 			ret = dmz_check_sb(zmd, sb, true);
