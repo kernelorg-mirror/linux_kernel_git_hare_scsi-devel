@@ -155,7 +155,6 @@ static int configfs_fill_super(struct super_block *sb, struct fs_context *fc)
 		pr_debug("%s: could not get root dentry!\n",__func__);
 		return -ENOMEM;
 	}
-	config_group_init(&info->group);
 	info->group.cg_item.ci_dentry = root;
 	root->d_fsdata = &info->root;
 	sb->s_root = root;
