@@ -39,6 +39,7 @@ static inline u8 scsi_ml_byte(int result)
  * Scsi Error Handler Flags
  */
 #define SCSI_EH_ABORT_SCHEDULED	0x0002	/* Abort has been scheduled */
+#define SCSI_EH_RESET_SCHEDULED	0x0004  /* Reset has been scheduled */
 
 #define SCSI_SENSE_VALID(scmd) \
 	(((scmd)->sense_buffer[0] & 0x70) == 0x70)

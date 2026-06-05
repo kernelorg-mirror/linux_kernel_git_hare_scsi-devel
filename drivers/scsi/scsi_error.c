@@ -58,6 +58,7 @@
 #define HOST_RESET_SETTLE_TIME  (10)
 
 static int scsi_eh_try_stu(struct scsi_cmnd *scmd);
+static enum scsi_disposition scsi_try_bus_device_reset(struct scsi_cmnd *scmd);
 static enum scsi_disposition scsi_try_to_abort_cmd(const struct scsi_host_template *,
 						   struct scsi_cmnd *);
 
@@ -170,7 +171,16 @@ scmd_eh_abort_handler(struct work_struct *work)
 				    "cmd abort %s\n",
 				    (rtn == FAST_IO_FAIL) ?
 				    "not send" : "failed"));
-		goto out;
+		if (scsi_host_eh_past_deadline(shost))
+			goto out;
+		rtn = scsi_try_bus_device_reset(scmd);
+		if (rtn != SUCCESS) {
+			scmd_printk(KERN_INFO, scmd,
+				    "device reset %s\n",
+				    (rtn == FAST_IO_FAIL) ?
+				    "not send" : "failed");
+			goto out;
+		}
 	}
 	set_host_byte(scmd, DID_TIME_OUT);
 	if (scsi_host_eh_past_deadline(shost)) {
@@ -1013,6 +1023,11 @@ static enum scsi_disposition scsi_try_bus_device_reset(struct scsi_cmnd *scmd)
 	if (!hostt->eh_device_reset_handler)
 		return FAILED;
 
+	/* Device reset had already been issued, escalate to next level */
+	if (scmd->eh_eflags & SCSI_EH_RESET_SCHEDULED)
+		return FAILED;
+
+	scmd->eh_eflags |= SCSI_EH_RESET_SCHEDULED;
 	rtn = hostt->eh_device_reset_handler(scmd);
 	if (rtn == SUCCESS)
 		__scsi_report_device_reset(scmd->device, NULL);
