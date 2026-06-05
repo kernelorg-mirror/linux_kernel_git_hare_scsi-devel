@@ -1895,7 +1895,7 @@ static int configfs_link_root(struct dentry *root, struct config_group *group)
 
 int configfs_register_subsystem(struct configfs_subsystem *subsys)
 {
-	struct configfs_super_info *info = configfs_get_root(NULL);
+	struct configfs_super_info *info = configfs_get_root(0);
 	struct dentry *root;
 	int err;
 
@@ -1903,7 +1903,7 @@ int configfs_register_subsystem(struct configfs_subsystem *subsys)
 		return PTR_ERR(info);
 
 	if (subsys->fill_subsystem) {
-		err = subsys->fill_subsystem(subsys, info->ns);
+		err = subsys->fill_subsystem(subsys, info->ns_id);
 		if (err)
 			goto out_put;
 	}
@@ -1929,7 +1929,7 @@ void configfs_link_subsystems(struct super_block *sb,
 			      struct configfs_super_info *info)
 {
 	struct configfs_subsystem *s;
-	struct configfs_super_info *root = configfs_get_root(NULL);
+	struct configfs_super_info *root = configfs_get_root(0);
 
 	if (WARN_ON(IS_ERR(root)))
 		return;
@@ -1948,21 +1948,21 @@ void configfs_link_subsystems(struct super_block *sb,
 		subsys->clear_subsystem = s->clear_subsystem;
 		INIT_LIST_HEAD(&subsys->su_link);
 		mutex_init(&subsys->su_mutex);
-		err = subsys->fill_subsystem(subsys, info->ns);
+		err = subsys->fill_subsystem(subsys, info->ns_id);
 		if (err) {
 			kfree(subsys);
 			continue;
 		}
 		dentry = configfs_pin_fs(sb);
 		if (IS_ERR(dentry)) {
-			subsys->clear_subsystem(subsys, info->ns);
+			subsys->clear_subsystem(subsys, info->ns_id);
 			kfree(subsys);
 			continue;
 		}
 		err = configfs_link_root(dentry, &subsys->su_group);
 		if (err) {
 			configfs_release_fs(sb);
-			subsys->clear_subsystem(subsys, info->ns);
+			subsys->clear_subsystem(subsys, info->ns_id);
 			kfree(subsys);
 			continue;
 		}
@@ -2024,7 +2024,7 @@ void configfs_unlink_subsystems(struct super_block *sb,
 		list_del_init(&subsys->su_link);
 		configfs_unlink_root(&subsys->su_group, info);
 		configfs_release_fs(sb);
-		subsys->clear_subsystem(subsys, info->ns);
+		subsys->clear_subsystem(subsys, info->ns_id);
 		mutex_lock(&subsys->su_mutex);
 		unlink_group(&subsys->su_group);
 		mutex_unlock(&subsys->su_mutex);
@@ -2036,12 +2036,12 @@ void configfs_unlink_subsystems(struct super_block *sb,
 void configfs_unregister_subsystem(struct configfs_subsystem *subsys)
 {
 	struct config_group *group = &subsys->su_group;
-	struct configfs_super_info *info = configfs_get_root(NULL);
+	struct configfs_super_info *info = configfs_get_root(0);
 
 	if (WARN_ON(IS_ERR(info)))
 		return;
 	if (subsys->clear_subsystem)
-		subsys->clear_subsystem(subsys, NULL);
+		subsys->clear_subsystem(subsys, 0);
 	configfs_unlink_root(group, info);
 
 	mutex_lock(&configfs_subsystem_mutex);

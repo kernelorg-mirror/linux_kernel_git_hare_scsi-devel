@@ -11,15 +11,9 @@
 static DEFINE_IDR(nvmet_disc_idr);
 static DEFINE_MUTEX(nvmet_disc_mutex);
 
-struct nvmet_subsys *nvmet_get_disc_subsys(struct ns_common *ns)
+struct nvmet_subsys *nvmet_get_disc_subsys(u64 ns_id)
 {
 	struct nvmet_subsys *subsys;
-	u64 ns_id = 0;
-
-	if (ns && is_ns_init_id(ns))
-		ns = NULL;
-	if (ns)
-		ns_id = ns->ns_id;
 
 	mutex_lock(&nvmet_disc_mutex);
 	subsys = idr_find(&nvmet_disc_idr, ns_id);
@@ -27,18 +21,13 @@ struct nvmet_subsys *nvmet_get_disc_subsys(struct ns_common *ns)
 	return subsys;
 }
 
-int nvmet_add_disc_subsys(struct ns_common *ns)
+int nvmet_add_disc_subsys(u64 ns_id)
 {
 	struct nvmet_subsys *disc_subsys;
 	int err;
-	u64 ns_id = 0;
 
-	if (ns && is_ns_init_id(ns))
-		ns = NULL;
-	if (ns)
-		ns_id = ns->ns_id;
 	disc_subsys = nvmet_subsys_alloc(NVME_DISC_SUBSYS_NAME,
-					 NVME_NQN_CURR, ns);
+					 NVME_NQN_CURR, ns_id);
 	if (IS_ERR(disc_subsys))
 		return PTR_ERR(disc_subsys);
 	mutex_lock(&nvmet_disc_mutex);
@@ -51,15 +40,10 @@ int nvmet_add_disc_subsys(struct ns_common *ns)
 	return err;
 }
 
-void nvmet_del_disc_subsys(struct ns_common *ns)
+void nvmet_del_disc_subsys(u64 ns_id)
 {
 	struct nvmet_subsys *disc_subsys;
-	u64 ns_id = 0;
 
-	if (ns && is_ns_init_id(ns))
-		ns = NULL;
-	if (ns)
-		ns_id = ns->ns_id;
 	mutex_lock(&nvmet_disc_mutex);
 	disc_subsys = idr_remove(&nvmet_disc_idr, ns_id);
 	if (disc_subsys)
@@ -84,11 +68,11 @@ void nvmet_port_disc_changed(struct nvmet_port *port,
 			     struct nvmet_subsys *subsys)
 {
 	struct nvmet_ctrl *ctrl;
-	struct ns_common *ns = configfs_ns_from_group(&port->group);
+	u64 ns_id = configfs_nsid_from_group(&port->group);
 	struct nvmet_subsys *disc_subsys;
 
 	lockdep_assert_held(&nvmet_config_sem);
-	disc_subsys = nvmet_get_disc_subsys(ns);
+	disc_subsys = nvmet_get_disc_subsys(ns_id);
 	if (WARN_ON(!disc_subsys))
 		return;
 	disc_subsys->genctr++;
@@ -109,13 +93,12 @@ void nvmet_port_disc_changed(struct nvmet_port *port,
 
 static void __nvmet_subsys_disc_changed(struct nvmet_port *port,
 					struct nvmet_subsys *subsys,
-					struct nvmet_host *host,
-					struct ns_common *ns)
+					struct nvmet_host *host, u64 ns_id)
 {
 	struct nvmet_ctrl *ctrl;
 	struct nvmet_subsys *disc_subsys;
 
-	disc_subsys = nvmet_get_disc_subsys(ns);
+	disc_subsys = nvmet_get_disc_subsys(ns_id);
 	if (WARN_ON(!disc_subsys))
 		return;
 	mutex_lock(&disc_subsys->lock);
@@ -135,20 +118,20 @@ void nvmet_subsys_disc_changed(struct nvmet_subsys *subsys,
 	struct nvmet_subsys_link *s;
 	struct list_head *port_list;
 	struct nvmet_subsys *disc_subsys;
-	struct ns_common *ns = configfs_ns_from_group(&subsys->group);
+	u64 ns_id = configfs_nsid_from_group(&subsys->group);
 
 	lockdep_assert_held(&nvmet_config_sem);
-	disc_subsys = nvmet_get_disc_subsys(ns);
+	disc_subsys = nvmet_get_disc_subsys(ns_id);
 	if (WARN_ON(!disc_subsys))
 		return;
 	disc_subsys->genctr++;
 
-	port_list = nvmet_get_port_list(ns);
+	port_list = nvmet_get_port_list(ns_id);
 	list_for_each_entry(port, port_list, global_entry)
 		list_for_each_entry(s, &port->subsystems, entry) {
 			if (s->subsys != subsys)
 				continue;
-			__nvmet_subsys_disc_changed(port, subsys, host, ns);
+			__nvmet_subsys_disc_changed(port, subsys, host, ns_id);
 		}
 }
 
@@ -244,7 +227,7 @@ static void nvmet_execute_disc_get_log_page(struct nvmet_req *req)
 	u16 status = 0;
 	void *buffer;
 	char traddr[NVMF_TRADDR_SIZE];
-	struct ns_common *ns = configfs_ns_from_group(&req->port->group);
+	u64 ns_id = configfs_nsid_from_group(&req->port->group);
 	struct nvmet_subsys *disc_subsys;
 
 	if (!nvmet_check_transfer_len(req, data_len))
@@ -280,7 +263,7 @@ static void nvmet_execute_disc_get_log_page(struct nvmet_req *req)
 	}
 	hdr = buffer;
 
-	disc_subsys = nvmet_get_disc_subsys(ns);
+	disc_subsys = nvmet_get_disc_subsys(ns_id);
 
 	nvmet_set_disc_traddr(req, req->port, traddr);
 

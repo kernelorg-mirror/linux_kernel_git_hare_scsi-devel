@@ -635,7 +635,7 @@ ssize_t nvmet_ctrl_host_traddr(struct nvmet_ctrl *ctrl,
 		char *traddr, size_t traddr_len);
 
 struct nvmet_subsys *nvmet_subsys_alloc(const char *subsysnqn,
-		enum nvme_subsys_type type, struct ns_common *ns);
+		enum nvme_subsys_type type, u64 ns_id);
 void nvmet_subsys_put(struct nvmet_subsys *subsys);
 void nvmet_subsys_del_ctrls(struct nvmet_subsys *subsys);
 
@@ -704,11 +704,11 @@ void nvmet_add_async_event(struct nvmet_ctrl *ctrl, u8 event_type,
 
 int __init nvmet_init_configfs(void);
 void __exit nvmet_exit_configfs(void);
-extern struct list_head *nvmet_get_port_list(struct ns_common *ns);
+extern struct list_head *nvmet_get_port_list(u64 ns_id);
 
-extern int nvmet_add_disc_subsys(struct ns_common *ns);
-extern void nvmet_del_disc_subsys(struct ns_common *ns);
-extern struct nvmet_subsys *nvmet_get_disc_subsys(struct ns_common *ns);
+extern int nvmet_add_disc_subsys(u64 ns_id);
+extern void nvmet_del_disc_subsys(u64 ns_id);
+extern struct nvmet_subsys *nvmet_get_disc_subsys(u64 ns_id);
 
 extern struct rw_semaphore nvmet_config_sem;
 

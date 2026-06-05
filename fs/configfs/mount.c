@@ -68,16 +68,18 @@ static void configfs_fill_root(struct configfs_super_info *info)
 	refcount_set(&info->mnt_ref, 1);
 }
 
-struct configfs_super_info *configfs_get_root(struct ns_common *ns)
+struct configfs_super_info *configfs_get_root(u64 ns_id)
 {
 	struct configfs_super_info *info;
-	u64 ns_id = 0;
 	int err;
 
-	ns_id = configfs_ns_id(ns);
 	info = idr_find(&configfs_super_idr, ns_id);
 	if (info) {
-		__ns_ref_inc(info->ns);
+		if (!refcount_inc_not_zero((&info->ref))) {
+			pr_warn("%s: ns %llu already freed\n",
+				__func__, ns_id);
+			return ERR_PTR(-EBUSY);
+		}
 		pr_info("%s: use ns %llu\n",
 			__func__, ns_id);
 		return info;
@@ -94,28 +96,18 @@ struct configfs_super_info *configfs_get_root(struct ns_common *ns)
 		return ERR_PTR(err);
 	}
 	WARN_ON(err != ns_id);
-	if (!ns) {
-		ns = from_mnt_ns(current->nsproxy->mnt_ns);
-		WARN_ON(!is_ns_init_id(ns));
-	}
-	__ns_ref_inc(ns);
-	info->ns = ns;
-	pr_info("%s: alloc ns %llu\n", __func__, ns_id);
+	info->ns_id = ns_id;
+	refcount_set(&info->ref, 1);
+	pr_info("%s: alloc ns %llu\n", __func__, info->ns_id);
 	return info;
 }
 
 void configfs_put_root(struct configfs_super_info *info)
 {
-	struct ns_common *ns = info->ns;
-	u64 ns_id = 0;
-
-	if (WARN_ON(!ns))
-		return;
-
-	if (__ns_ref_put(ns)) {
+	if (refcount_dec_and_test(&info->ref)) {
 		pr_info("%s: ns %llu free fs info\n",
-			__func__, ns_id);
-		idr_remove(&configfs_super_idr, ns_id);
+			__func__, info->ns_id);
+		idr_remove(&configfs_super_idr, info->ns_id);
 		WARN_ON(!list_empty(&info->subsys_list));
 		kfree(info);
 	}
@@ -171,7 +163,7 @@ static int configfs_get_tree(struct fs_context *fc)
 	struct ns_common *ns = fc->fs_private;
 	struct configfs_super_info *info;
 
-	info = configfs_get_root(ns);
+	info = configfs_get_root(configfs_ns_id(ns));
 	if (IS_ERR(info))
 		return PTR_ERR(info);
 
@@ -181,19 +173,11 @@ static int configfs_get_tree(struct fs_context *fc)
 static void configfs_fs_context_free(struct fs_context *fc)
 {
 	struct ns_common *ns = fc->fs_private;
-	u64 ns_id = configfs_ns_id(ns);
 
-	pr_info("%s: ns %llu\n", __func__, ns_id);
+	fc->fs_private = NULL;
+	pr_info("%s: ns %llu\n", __func__, configfs_ns_id(ns));
 	if (__ns_ref_put(ns))
 		pr_debug("%s: drop ns\n", __func__);
-	fc->fs_private = NULL;
-
-	if (fc->s_fs_info) {
-		struct configfs_super_info *info = fc->s_fs_info;
-
-		configfs_put_root(info);
-		fc->s_fs_info = NULL;
-	}
 }
 
 static const struct fs_context_operations configfs_context_ops = {
@@ -217,7 +201,7 @@ static void configfs_kill_sb(struct super_block *sb)
 {
 	struct configfs_super_info *info = sb->s_fs_info;
 
-	pr_info("%s: ns %llu\n", __func__, info->ns->ns_id);
+	pr_info("%s: ns %llu\n", __func__, info->ns_id);
 	configfs_unlink_subsystems(sb, info);
 	kill_anon_super(sb);
 	configfs_put_root(info);
@@ -234,15 +218,17 @@ MODULE_ALIAS_FS("configfs");
 
 struct dentry *configfs_pin_fs(struct super_block *sb)
 {
-	struct configfs_super_info *info;
+	struct configfs_super_info *info = configfs_get_root(0);
 	struct vfsmount *mnt;
 	struct dentry *dentry;
+	struct configfs_super_info *root = configfs_get_root(0);
+
+	if (WARN_ON(IS_ERR(root)))
+		return ERR_CAST(root);
 
 	if (sb) {
-		struct configfs_super_info *root = configfs_get_root(NULL);
+		struct configfs_super_info *root = info;
 
-		if (WARN_ON(IS_ERR(root)))
-			return ERR_CAST(root);
 		info = sb->s_fs_info;
 		dentry = sb->s_root;
 		dget(dentry);
@@ -250,7 +236,7 @@ struct dentry *configfs_pin_fs(struct super_block *sb)
 		configfs_put_root(root);
 		goto get_mount;
 	}
-	info = configfs_get_root(NULL);
+	info = configfs_get_root(0);
 	if (WARN_ON(IS_ERR(info)))
 		return ERR_CAST(info);
 
@@ -275,35 +261,37 @@ void configfs_release_fs(struct super_block *sb)
 	struct vfsmount *mnt;
 
 	if (!sb) {
-		info = configfs_get_root(NULL);
+		info = configfs_get_root(0);
 		if (WARN_ON(IS_ERR(info)))
 			return;
 	} else {
 		info = sb->s_fs_info;
 		dput(sb->s_root);
 	}
+	pr_debug("release ns %llu\n", info->ns_id);
 	mnt = info->mnt;
 	WARN_ON(!mnt);
+	mntput(mnt);
 	if (!refcount_dec_and_test(&info->mnt_ref))
 		info->mnt = NULL;
-	mntput(mnt);
 	configfs_put_root(info);
 }
 
-struct ns_common *configfs_ns_from_group(struct config_group *group)
+u64 configfs_nsid_from_group(struct config_group *group)
 {
 	struct configfs_super_info *info = configfs_root;
+	u64 ns_id = 0;
 
 	if (group) {
 		struct dentry *dentry = group->cg_item.ci_dentry;
 
 		info = dentry->d_sb->s_fs_info;
+		if (info)
+			ns_id = info->ns_id;
 	}
-	if (info)
-		return info->ns;
-	return NULL;
+	return ns_id;
 }
-EXPORT_SYMBOL_GPL(configfs_ns_from_group);
+EXPORT_SYMBOL_GPL(configfs_nsid_from_group);
 
 static int __init configfs_init(void)
 {
@@ -323,7 +311,7 @@ static int __init configfs_init(void)
 	if (err)
 		goto out3;
 
-	configfs_root = configfs_get_root(NULL);
+	configfs_root = configfs_get_root(0);
 	if (IS_ERR(configfs_root)) {
 		err = PTR_ERR(configfs_root);
 		goto out4;
@@ -345,6 +333,7 @@ out:
 static void __exit configfs_exit(void)
 {
 	idr_remove(&configfs_super_idr, 0);
+	WARN_ON(refcount_dec_and_test(&configfs_root->ref));
 	kfree(configfs_root);
 	unregister_filesystem(&configfs_fs_type);
 	sysfs_remove_mount_point(kernel_kobj, "config");

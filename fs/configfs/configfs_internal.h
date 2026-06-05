@@ -49,8 +49,9 @@ struct configfs_super_info {
 	struct config_group group;
 	struct list_head subsys_list;
 	struct mutex subsys_mutex;
-	struct ns_common *ns;
 	struct vfsmount *mnt;
+	u64 ns_id;
+	refcount_t ref;
 	refcount_t mnt_ref;
 };
 
@@ -91,7 +92,7 @@ extern int configfs_setattr(struct mnt_idmap *idmap,
 
 extern struct dentry *configfs_pin_fs(struct super_block *sb);
 extern void configfs_release_fs(struct super_block *sb);
-extern struct configfs_super_info *configfs_get_root(struct ns_common *ns);
+extern struct configfs_super_info *configfs_get_root(u64 ns_id);
 extern void configfs_put_root(struct configfs_super_info *info);
 extern void configfs_link_subsystems(struct super_block *sb,
 				     struct configfs_super_info *info);

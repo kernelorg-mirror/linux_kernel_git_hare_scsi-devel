@@ -100,7 +100,7 @@ static int nvmet_bpf_reg(void *kdata, struct bpf_link *link)
 	struct nvmet_bpf_ops *ops = kdata;
 	struct nvmet_port *p, *port = NULL;
 	struct nvmet_subsys_link *s;
-	struct list_head *port_list = nvmet_get_port_list(NULL);
+	struct list_head *port_list = nvmet_get_port_list(0);
 
 	pr_debug("%s: register %s port id %d\n",
 		 __func__, ops->subsysnqn, ops->portid);
