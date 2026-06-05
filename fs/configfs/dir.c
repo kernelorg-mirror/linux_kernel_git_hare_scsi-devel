@@ -1928,13 +1928,14 @@ out_put:
 void configfs_link_subsystems(struct super_block *sb,
 			      struct configfs_super_info *info)
 {
-	struct configfs_subsystem *subsys, *s;
+	struct configfs_subsystem *s;
 	struct configfs_super_info *root = configfs_get_root(NULL);
 
 	if (WARN_ON(IS_ERR(root)))
 		return;
 	mutex_lock(&root->subsys_mutex);
 	list_for_each_entry(s, &root->subsys_list, su_link) {
+		struct configfs_subsystem *subsys;
 		struct dentry *dentry;
 		int err;
 
@@ -1947,21 +1948,21 @@ void configfs_link_subsystems(struct super_block *sb,
 		subsys->clear_subsystem = s->clear_subsystem;
 		INIT_LIST_HEAD(&subsys->su_link);
 		mutex_init(&subsys->su_mutex);
-		err = s->fill_subsystem(subsys, info->ns);
+		err = subsys->fill_subsystem(subsys, info->ns);
 		if (err) {
 			kfree(subsys);
 			continue;
 		}
 		dentry = configfs_pin_fs(sb);
 		if (IS_ERR(dentry)) {
-			s->clear_subsystem(subsys, info->ns);
+			subsys->clear_subsystem(subsys, info->ns);
 			kfree(subsys);
 			continue;
 		}
 		err = configfs_link_root(dentry, &subsys->su_group);
 		if (err) {
 			configfs_release_fs(sb);
-			s->clear_subsystem(subsys, info->ns);
+			subsys->clear_subsystem(subsys, info->ns);
 			kfree(subsys);
 			continue;
 		}
@@ -1976,7 +1977,7 @@ void configfs_link_subsystems(struct super_block *sb,
 static void configfs_unlink_root(struct config_group *group,
 				 struct configfs_super_info *info)
 {
-	struct dentry *dentry = group->cg_item.ci_dentry;
+	struct dentry *dentry = dget(group->cg_item.ci_dentry);
 	struct dentry *root = dentry->d_sb->s_root;
 	struct configfs_dirent *sd = dentry->d_fsdata;
 	struct configfs_fragment *frag = sd->s_frag;
