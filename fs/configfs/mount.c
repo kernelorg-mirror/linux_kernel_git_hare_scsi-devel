@@ -274,7 +274,8 @@ void configfs_release_fs(struct super_block *sb)
 	mntput(mnt);
 	if (!refcount_dec_and_test(&info->mnt_ref))
 		info->mnt = NULL;
-	configfs_put_root(info);
+	if (!sb)
+		configfs_put_root(info);
 }
 
 u64 configfs_nsid_from_group(struct config_group *group)
