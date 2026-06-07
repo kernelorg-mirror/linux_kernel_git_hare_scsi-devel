@@ -218,7 +218,7 @@ MODULE_ALIAS_FS("configfs");
 
 struct dentry *configfs_pin_fs(struct super_block *sb)
 {
-	struct configfs_super_info *info = configfs_get_root(0);
+	struct configfs_super_info *info = configfs_root;
 	struct vfsmount *mnt;
 	struct dentry *dentry;
 
@@ -229,12 +229,8 @@ struct dentry *configfs_pin_fs(struct super_block *sb)
 		dentry = sb->s_root;
 		dget(dentry);
 		info->mnt = root->mnt;
-		configfs_put_root(root);
 		goto get_mount;
 	}
-	info = configfs_get_root(0);
-	if (WARN_ON(IS_ERR(info)))
-		return ERR_CAST(info);
 
 	if (!info->mnt) {
 		mnt = vfs_kern_mount(&configfs_fs_type, SB_KERNMOUNT,
@@ -253,14 +249,10 @@ get_mount:
 
 void configfs_release_fs(struct super_block *sb)
 {
-	struct configfs_super_info *info;
+	struct configfs_super_info *info = configfs_root;
 	struct vfsmount *mnt;
 
-	if (!sb) {
-		info = configfs_get_root(0);
-		if (WARN_ON(IS_ERR(info)))
-			return;
-	} else {
+	if (sb) {
 		info = sb->s_fs_info;
 		dput(sb->s_root);
 	}
@@ -270,8 +262,6 @@ void configfs_release_fs(struct super_block *sb)
 	mntput(mnt);
 	if (!refcount_dec_and_test(&info->mnt_ref))
 		info->mnt = NULL;
-	if (!sb)
-		configfs_put_root(info);
 }
 
 u64 configfs_nsid_from_group(struct config_group *group)
