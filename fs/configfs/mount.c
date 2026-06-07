@@ -221,10 +221,6 @@ struct dentry *configfs_pin_fs(struct super_block *sb)
 	struct configfs_super_info *info = configfs_get_root(0);
 	struct vfsmount *mnt;
 	struct dentry *dentry;
-	struct configfs_super_info *root = configfs_get_root(0);
-
-	if (WARN_ON(IS_ERR(root)))
-		return ERR_CAST(root);
 
 	if (sb) {
 		struct configfs_super_info *root = info;
