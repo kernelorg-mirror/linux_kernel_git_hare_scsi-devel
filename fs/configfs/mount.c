@@ -65,7 +65,7 @@ static void configfs_fill_root(struct configfs_super_info *info)
 	config_group_init(&info->group);
 	INIT_LIST_HEAD(&info->subsys_list);
 	mutex_init(&info->subsys_mutex);
-	refcount_set(&info->mnt_ref, 1);
+	info->mnt_count = 0;
 }
 
 struct configfs_super_info *configfs_get_root(u64 ns_id)
@@ -219,49 +219,50 @@ MODULE_ALIAS_FS("configfs");
 struct dentry *configfs_pin_fs(struct super_block *sb)
 {
 	struct configfs_super_info *info = configfs_root;
-	struct vfsmount *mnt;
-	struct dentry *dentry;
+	int err;
 
 	if (sb) {
 		struct configfs_super_info *root = info;
+		struct dentry *dentry = sb->s_root;
 
 		info = sb->s_fs_info;
-		dentry = sb->s_root;
+		if (!info->mnt) {
+			info->mnt = root->mnt;
+			root->mnt_count++;
+		}
 		dget(dentry);
-		info->mnt = root->mnt;
-		goto get_mount;
+		mntget(info->mnt);
+		info->mnt_count++;
+		return dentry;
 	}
 
-	if (!info->mnt) {
-		mnt = vfs_kern_mount(&configfs_fs_type, SB_KERNMOUNT,
-				     configfs_fs_type.name, NULL);
-		if (IS_ERR(mnt))
-			return ERR_CAST(mnt);
-		info->mnt = mnt;
-	}
-	dentry = info->mnt->mnt_root;
+	err = simple_pin_fs(&configfs_fs_type, &info->mnt, &info->mnt_count);
+	if (err)
+		return ERR_PTR(err);
 
-get_mount:
-	refcount_inc(&info->mnt_ref);
-	mntget(info->mnt);
-	return dentry;
+	return info->mnt->mnt_root;
 }
 
 void configfs_release_fs(struct super_block *sb)
 {
 	struct configfs_super_info *info = configfs_root;
-	struct vfsmount *mnt;
 
 	if (sb) {
+		struct configfs_super_info *root = info;
+
 		info = sb->s_fs_info;
+		pr_debug("release ns %llu\n", info->ns_id);
 		dput(sb->s_root);
+		mntput(info->mnt);
+		info->mnt_count--;
+		if (!info->mnt_count) {
+			info->mnt = NULL;
+			root->mnt_count--;
+		}
+		return;
 	}
 	pr_debug("release ns %llu\n", info->ns_id);
-	mnt = info->mnt;
-	WARN_ON(!mnt);
-	mntput(mnt);
-	if (!refcount_dec_and_test(&info->mnt_ref))
-		info->mnt = NULL;
+	simple_release_fs(&configfs_root->mnt, &configfs_root->mnt_count);
 }
 
 u64 configfs_nsid_from_group(struct config_group *group)

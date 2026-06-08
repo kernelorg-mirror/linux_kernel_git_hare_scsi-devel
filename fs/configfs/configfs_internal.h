@@ -50,9 +50,9 @@ struct configfs_super_info {
 	struct list_head subsys_list;
 	struct mutex subsys_mutex;
 	struct vfsmount *mnt;
+	unsigned int mnt_count;
 	u64 ns_id;
 	refcount_t ref;
-	refcount_t mnt_ref;
 };
 
 #define CONFIGFS_ROOT		0x0001
