@@ -1895,7 +1895,7 @@ static int configfs_link_root(struct dentry *root, struct config_group *group)
 
 int configfs_register_subsystem(struct configfs_subsystem *subsys)
 {
-	struct configfs_super_info *info = configfs_get_root(0);
+	struct configfs_super_info *info = configfs_get_super_info(0);
 	struct dentry *root;
 	int err;
 
@@ -1921,7 +1921,7 @@ int configfs_register_subsystem(struct configfs_subsystem *subsys)
 	list_add(&subsys->su_link, &info->subsys_list);
 	mutex_unlock(&info->subsys_mutex);
 out_put:
-	configfs_put_root(info);
+	configfs_put_super_info(info);
 	return err;
 }
 
@@ -1929,7 +1929,7 @@ void configfs_link_subsystems(struct super_block *sb,
 			      struct configfs_super_info *info)
 {
 	struct configfs_subsystem *s;
-	struct configfs_super_info *root = configfs_get_root(0);
+	struct configfs_super_info *root = configfs_get_super_info(0);
 
 	if (WARN_ON(IS_ERR(root)))
 		return;
@@ -1971,7 +1971,7 @@ void configfs_link_subsystems(struct super_block *sb,
 		mutex_unlock(&info->subsys_mutex);
 	}
 	mutex_unlock(&root->subsys_mutex);
-	configfs_put_root(root);
+	configfs_put_super_info(root);
 }
 
 static void configfs_unlink_root(struct config_group *group,
@@ -2036,7 +2036,7 @@ void configfs_unlink_subsystems(struct super_block *sb,
 void configfs_unregister_subsystem(struct configfs_subsystem *subsys)
 {
 	struct config_group *group = &subsys->su_group;
-	struct configfs_super_info *info = configfs_get_root(0);
+	struct configfs_super_info *info = configfs_get_super_info(0);
 
 	if (WARN_ON(IS_ERR(info)))
 		return;
@@ -2048,7 +2048,7 @@ void configfs_unregister_subsystem(struct configfs_subsystem *subsys)
 	unlink_group(group);
 	mutex_unlock(&configfs_subsystem_mutex);
 	configfs_release_fs(NULL);
-	configfs_put_root(info);
+	configfs_put_super_info(info);
 }
 
 EXPORT_SYMBOL(configfs_register_subsystem);

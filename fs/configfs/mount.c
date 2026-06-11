@@ -68,7 +68,7 @@ static void configfs_fill_root(struct configfs_super_info *info)
 	info->mnt_count = 0;
 }
 
-struct configfs_super_info *configfs_get_root(u64 ns_id)
+struct configfs_super_info *configfs_get_super_info(u64 ns_id)
 {
 	struct configfs_super_info *info;
 	int err;
@@ -102,7 +102,7 @@ struct configfs_super_info *configfs_get_root(u64 ns_id)
 	return info;
 }
 
-void configfs_put_root(struct configfs_super_info *info)
+void configfs_put_super_info(struct configfs_super_info *info)
 {
 	if (refcount_dec_and_test(&info->ref)) {
 		pr_info("%s: ns %llu free fs info\n",
@@ -163,7 +163,7 @@ static int configfs_get_tree(struct fs_context *fc)
 	struct ns_common *ns = fc->fs_private;
 	struct configfs_super_info *info;
 
-	info = configfs_get_root(configfs_ns_id(ns));
+	info = configfs_get_super_info(configfs_ns_id(ns));
 	if (IS_ERR(info))
 		return PTR_ERR(info);
 
@@ -204,7 +204,7 @@ static void configfs_kill_sb(struct super_block *sb)
 	pr_info("%s: ns %llu\n", __func__, info->ns_id);
 	configfs_unlink_subsystems(sb, info);
 	kill_anon_super(sb);
-	configfs_put_root(info);
+	configfs_put_super_info(info);
 }
 
 static struct file_system_type configfs_fs_type = {
@@ -299,7 +299,7 @@ static int __init configfs_init(void)
 	if (err)
 		goto out3;
 
-	configfs_root = configfs_get_root(0);
+	configfs_root = configfs_get_super_info(0);
 	if (IS_ERR(configfs_root)) {
 		err = PTR_ERR(configfs_root);
 		goto out4;
