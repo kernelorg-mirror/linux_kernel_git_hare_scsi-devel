@@ -16,6 +16,7 @@
 #include <linux/init.h>
 #include <linux/slab.h>
 
+#include <linux/mnt_namespace.h>
 #include <linux/configfs.h>
 #include "configfs_internal.h"
 
@@ -25,6 +26,13 @@
 struct kmem_cache *configfs_dir_cachep;
 static DEFINE_XARRAY(configfs_super_xa);
 static struct configfs_super_info *configfs_root = NULL;
+
+static u64 configfs_ns_id(struct ns_common *ns)
+{
+	if (!ns || is_ns_init_id(ns))
+		return 0;
+	return ns->ns_id;
+}
 
 static void configfs_free_inode(struct inode *inode)
 {
@@ -106,9 +114,13 @@ void configfs_put_super_info(struct configfs_super_info *info)
 
 static int configfs_fill_super(struct super_block *sb, struct fs_context *fc)
 {
-	struct configfs_super_info *info = configfs_get_super_info(0);
+	struct configfs_super_info *info = sb->s_fs_info;
+	struct ns_common *ns = fc->fs_private;
 	struct inode *inode;
 	struct dentry *root;
+	u64 ns_id = configfs_ns_id(ns);
+
+	pr_info("%s: ns %llu\n", __func__, ns_id);
 
 	sb->s_blocksize = PAGE_SIZE;
 	sb->s_blocksize_bits = PAGE_SHIFT;
@@ -125,21 +137,18 @@ static int configfs_fill_super(struct super_block *sb, struct fs_context *fc)
 		inc_nlink(inode);
 	} else {
 		pr_debug("could not get root inode\n");
-		configfs_put_super_info(info);
 		return -ENOMEM;
 	}
 
 	root = d_make_root(inode);
 	if (!root) {
 		pr_debug("%s: could not get root dentry!\n",__func__);
-		configfs_put_super_info(info);
 		return -ENOMEM;
 	}
 	config_group_init(&info->group);
 	info->group.cg_item.ci_dentry = root;
 	root->d_fsdata = &info->root;
 	sb->s_root = root;
-	sb->s_fs_info = info;
 	set_default_d_op(sb, &configfs_dentry_ops); /* the rest get that */
 	sb->s_d_flags |= DCACHE_DONTCACHE;
 
@@ -151,15 +160,44 @@ static int configfs_fill_super(struct super_block *sb, struct fs_context *fc)
 
 static int configfs_get_tree(struct fs_context *fc)
 {
-	return get_tree_single(fc, configfs_fill_super);
+	struct ns_common *ns = fc->fs_private;
+	struct configfs_super_info *info;
+	int err;
+
+	info = configfs_get_super_info(configfs_ns_id(ns));
+	if (IS_ERR(info))
+		return PTR_ERR(info);
+
+	err = get_tree_keyed(fc, configfs_fill_super, info);
+	if (err && fc->s_fs_info)
+		configfs_put_super_info(info);
+	return err;
+}
+
+static void configfs_fs_context_free(struct fs_context *fc)
+{
+	struct ns_common *ns = fc->fs_private;
+	u64 ns_id = configfs_ns_id(ns);
+
+	fc->fs_private = NULL;
+	pr_info("%s: ns %llu\n", __func__, ns_id);
+	if (__ns_ref_put(ns))
+		pr_debug("%s: drop ns\n", __func__);
 }
 
 static const struct fs_context_operations configfs_context_ops = {
 	.get_tree	= configfs_get_tree,
+	.free		= configfs_fs_context_free,
 };
 
 static int configfs_init_fs_context(struct fs_context *fc)
 {
+	struct ns_common *ns = from_mnt_ns(current->nsproxy->mnt_ns);
+
+	if (!__ns_ref_get(ns))
+		return -EAGAIN;
+
+	fc->fs_private = ns;
 	fc->ops = &configfs_context_ops;
 	return 0;
 }
@@ -180,6 +218,7 @@ static struct file_system_type configfs_fs_type = {
 	.name		= "configfs",
 	.init_fs_context = configfs_init_fs_context,
 	.kill_sb	= configfs_kill_sb,
+	.fs_flags	= FS_USERNS_MOUNT,
 };
 MODULE_ALIAS_FS("configfs");
 
