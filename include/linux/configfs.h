@@ -226,8 +226,13 @@ struct configfs_group_operations {
 };
 
 struct configfs_subsystem {
+	struct list_head	su_link;
 	struct config_group	su_group;
 	struct mutex		su_mutex;
+	int (*fill_subsystem)(struct configfs_subsystem *subsys,
+			      u64 ns_id);
+	void (*clear_subsystem)(struct configfs_subsystem *subsys,
+				u64 ns_id);
 };
 
 static inline struct configfs_subsystem *to_configfs_subsystem(struct config_group *group)
