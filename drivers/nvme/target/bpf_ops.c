@@ -100,11 +100,13 @@ static int nvmet_bpf_reg(void *kdata, struct bpf_link *link)
 	struct nvmet_bpf_ops *ops = kdata;
 	struct nvmet_port *p, *port = NULL;
 	struct nvmet_subsys_link *s;
+	/* This is wrong :-( */
+	struct list_head *port_list = nvmet_get_port_list(0);
 
 	pr_debug("%s: register %s port id %d\n",
 		 __func__, ops->subsysnqn, ops->portid);
 
-	list_for_each_entry(p, nvmet_ports, global_entry) {
+	list_for_each_entry(p, port_list, global_entry) {
 		if (p->disc_addr.portid == ops->portid) {
 			port = p;
 			break;

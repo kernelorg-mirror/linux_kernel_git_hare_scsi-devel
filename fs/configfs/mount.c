@@ -265,6 +265,22 @@ void configfs_release_fs(struct super_block *sb)
 	simple_release_fs(&info->mnt, &info->mnt_count);
 }
 
+u64 configfs_nsid_from_group(struct config_group *group)
+{
+	struct configfs_super_info *info = configfs_root;
+	u64 ns_id = 0;
+
+	if (group) {
+		struct dentry *dentry = group->cg_item.ci_dentry;
+
+		info = dentry->d_sb->s_fs_info;
+		if (info)
+			ns_id = info->ns_id;
+	}
+	return ns_id;
+}
+EXPORT_SYMBOL_GPL(configfs_nsid_from_group);
+
 static int __init configfs_init(void)
 {
 	int err = -ENOMEM;

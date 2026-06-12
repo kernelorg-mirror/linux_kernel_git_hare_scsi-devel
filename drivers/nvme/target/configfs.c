@@ -25,8 +25,9 @@
 static const struct config_item_type nvmet_host_type;
 static const struct config_item_type nvmet_subsys_type;
 
-static LIST_HEAD(nvmet_ports_list);
-struct list_head *nvmet_ports = &nvmet_ports_list;
+
+static DEFINE_IDR(nvmet_ports_idr);
+static DEFINE_MUTEX(nvmet_ports_mutex);
 
 struct nvmet_type_name_map {
 	u8		type;
@@ -50,6 +51,58 @@ static const struct nvmet_type_name_map nvmet_addr_family[] = {
 	{ NVMF_ADDR_FAMILY_PCI,		"pci" },
 	{ NVMF_ADDR_FAMILY_LOOP,	"loop" },
 };
+
+struct list_head *nvmet_get_port_list(u64 ns_id)
+{
+	struct list_head *port_list;
+
+	mutex_lock(&nvmet_ports_mutex);
+	port_list = idr_find(&nvmet_ports_idr, ns_id);
+	mutex_unlock(&nvmet_ports_mutex);
+	return port_list;
+}
+
+static int nvmet_add_port_list(u64 ns_id, struct nvmet_port *p)
+{
+	struct list_head *port_list;
+
+	mutex_lock(&nvmet_ports_mutex);
+	port_list = idr_find(&nvmet_ports_idr, ns_id);
+	if (!port_list) {
+		int err;
+
+		port_list = kzalloc_obj(*port_list);
+		if (!port_list)
+			return -ENOMEM;
+		INIT_LIST_HEAD(port_list);
+		err = idr_alloc(&nvmet_ports_idr, port_list,
+				ns_id, ns_id + 1, GFP_KERNEL);
+		if (err < 0) {
+			kfree(port_list);
+			return err;
+		}
+		WARN_ON(err != ns_id);
+	}
+	list_add(&p->global_entry, port_list);
+	mutex_unlock(&nvmet_ports_mutex);
+	return 0;
+}
+
+static void nvmet_del_port_list(u64 ns_id, struct nvmet_port *p)
+{
+	struct list_head *port_list;
+
+	mutex_lock(&nvmet_ports_mutex);
+	port_list = idr_find(&nvmet_ports_idr, ns_id);
+	if (!WARN_ON(!port_list)) {
+		list_del_init(&p->global_entry);
+		if (list_empty(port_list)) {
+			idr_remove(&nvmet_ports_idr, ns_id);
+			kfree(port_list);
+		}
+	}
+	mutex_unlock(&nvmet_ports_mutex);
+}
 
 static bool nvmet_is_port_enabled(struct nvmet_port *p, const char *caller)
 {
@@ -1718,6 +1771,7 @@ static void nvmet_subsys_release(struct config_item *item)
 {
 	struct nvmet_subsys *subsys = to_subsys(item);
 
+	configfs_remove_default_groups(&subsys->group);
 	nvmet_subsys_del_ctrls(subsys);
 	nvmet_subsys_put(subsys);
 }
@@ -1735,19 +1789,21 @@ static const struct config_item_type nvmet_subsys_type = {
 static struct config_group *nvmet_subsys_make(struct config_group *group,
 		const char *name)
 {
-	struct nvmet_subsys *subsys;
+	struct nvmet_subsys *subsys, *disc_subsys;
+	u64 ns_id = configfs_nsid_from_group(group);
 
 	if (sysfs_streq(name, NVME_DISC_SUBSYS_NAME)) {
 		pr_err("can't create discovery subsystem through configfs\n");
 		return ERR_PTR(-EINVAL);
 	}
 
-	if (sysfs_streq(name, nvmet_disc_subsys->subsysnqn)) {
+	disc_subsys = nvmet_get_disc_subsys(ns_id);
+	if (sysfs_streq(name, disc_subsys->subsysnqn)) {
 		pr_err("can't create subsystem using unique discovery NQN\n");
 		return ERR_PTR(-EINVAL);
 	}
 
-	subsys = nvmet_subsys_alloc(name, NVME_NQN_NVME);
+	subsys = nvmet_subsys_alloc(name, NVME_NQN_NVME, ns_id);
 	if (IS_ERR(subsys))
 		return ERR_CAST(subsys);
 
@@ -2002,11 +2058,13 @@ static const struct config_item_type nvmet_ana_groups_type = {
 static void nvmet_port_release(struct config_item *item)
 {
 	struct nvmet_port *port = to_nvmet_port(item);
+	u64 ns_id = configfs_nsid_from_group(&port->group);
 
 	/* Let inflight controllers teardown complete */
 	flush_workqueue(nvmet_wq);
-	list_del(&port->global_entry);
+	nvmet_del_port_list(ns_id, port);
 
+	configfs_remove_default_groups(&port->group);
 	key_put(port->keyring);
 	kfree(port->ana_state);
 	kfree(port);
@@ -2041,6 +2099,7 @@ static const struct config_item_type nvmet_port_type = {
 static struct config_group *nvmet_ports_make(struct config_group *group,
 		const char *name)
 {
+	u64 ns_id = configfs_nsid_from_group(group);
 	struct nvmet_port *port;
 	u16 portid;
 	u32 i;
@@ -2073,7 +2132,7 @@ static struct config_group *nvmet_ports_make(struct config_group *group,
 			port->ana_state[i] = NVME_ANA_INACCESSIBLE;
 	}
 
-	list_add(&port->global_entry, &nvmet_ports_list);
+	nvmet_add_port_list(ns_id, port);
 
 	INIT_LIST_HEAD(&port->entry);
 	INIT_LIST_HEAD(&port->subsystems);
@@ -2119,9 +2178,6 @@ static const struct config_item_type nvmet_ports_type = {
 	.ct_group_ops		= &nvmet_ports_group_ops,
 	.ct_owner		= THIS_MODULE,
 };
-
-static struct config_group nvmet_subsystems_group;
-static struct config_group nvmet_ports_group;
 
 #ifdef CONFIG_NVME_TARGET_AUTH
 static ssize_t nvmet_host_dhchap_key_show(struct config_item *item,
@@ -2304,17 +2360,22 @@ static const struct config_item_type nvmet_hosts_type = {
 	.ct_owner		= THIS_MODULE,
 };
 
-static struct config_group nvmet_hosts_group;
-
 static ssize_t nvmet_root_discovery_nqn_show(struct config_item *item,
 					     char *page)
 {
-	return snprintf(page, PAGE_SIZE, "%s\n", nvmet_disc_subsys->subsysnqn);
+	u64 ns_id = configfs_nsid_from_group(to_config_group(item));
+	struct nvmet_subsys *disc_subsys = nvmet_get_disc_subsys(ns_id);
+
+	return snprintf(page, PAGE_SIZE, "%s\n", disc_subsys->subsysnqn);
 }
 
 static ssize_t nvmet_root_discovery_nqn_store(struct config_item *item,
 		const char *page, size_t count)
 {
+	struct config_item *subsystems_item;
+	struct config_group *subsystems_group;
+	u64 ns_id = configfs_nsid_from_group(to_config_group(item));
+	struct nvmet_subsys *disc_subsys;
 	struct list_head *entry;
 	char *old_nqn, *new_nqn;
 	size_t len;
@@ -2328,7 +2389,14 @@ static ssize_t nvmet_root_discovery_nqn_store(struct config_item *item,
 		return -ENOMEM;
 
 	down_write(&nvmet_config_sem);
-	list_for_each(entry, &nvmet_subsystems_group.cg_children) {
+	subsystems_item = config_group_find_item(to_config_group(item), "subsystems");
+	if (WARN_ON(!subsystems_item)) {
+		kfree(new_nqn);
+		up_write(&nvmet_config_sem);
+		return -EINVAL;
+	}
+	subsystems_group = to_config_group(subsystems_item);
+	list_for_each(entry, &subsystems_group->cg_children) {
 		struct config_item *item =
 			container_of(entry, struct config_item, ci_entry);
 
@@ -2339,8 +2407,9 @@ static ssize_t nvmet_root_discovery_nqn_store(struct config_item *item,
 			return -EINVAL;
 		}
 	}
-	old_nqn = nvmet_disc_subsys->subsysnqn;
-	nvmet_disc_subsys->subsysnqn = new_nqn;
+	disc_subsys = nvmet_get_disc_subsys(ns_id);
+	old_nqn = disc_subsys->subsysnqn;
+	disc_subsys->subsysnqn = new_nqn;
 	up_write(&nvmet_config_sem);
 
 	kfree(old_nqn);
@@ -2359,6 +2428,68 @@ static const struct config_item_type nvmet_root_type = {
 	.ct_owner		= THIS_MODULE,
 };
 
+static int nvmet_configfs_fill_subsystem(struct configfs_subsystem *subsys,
+					 u64 ns_id)
+{
+	struct config_group *subsystems_group, *ports_group, *hosts_group;
+	int err;
+
+	err = nvmet_add_disc_subsys(ns_id);
+	if (err < 0)
+		return err;
+
+	subsystems_group = kzalloc_obj(*subsystems_group);
+	if (!subsystems_group) {
+		nvmet_del_disc_subsys(ns_id);
+		return -ENOMEM;
+	}
+	config_group_init_type_name(subsystems_group,
+			"subsystems", &nvmet_subsystems_type);
+	configfs_add_default_group(subsystems_group,
+			&subsys->su_group);
+
+	ports_group = kzalloc_obj(*ports_group);
+	if (!ports_group) {
+		kfree(subsystems_group);
+		nvmet_del_disc_subsys(ns_id);
+		return -ENOMEM;
+	}
+	config_group_init_type_name(ports_group,
+			"ports", &nvmet_ports_type);
+	configfs_add_default_group(ports_group,
+			&subsys->su_group);
+
+	hosts_group = kzalloc_obj(*hosts_group);
+	if (!hosts_group) {
+		kfree(ports_group);
+		kfree(subsystems_group);
+		nvmet_del_disc_subsys(ns_id);
+		return -ENOMEM;
+	}
+	config_group_init_type_name(hosts_group,
+			"hosts", &nvmet_hosts_type);
+	configfs_add_default_group(hosts_group,
+			&subsys->su_group);
+	strcpy(subsys->su_group.cg_item.ci_namebuf, "nvmet");
+	subsys->su_group.cg_item.ci_type = &nvmet_root_type;
+
+	return 0;
+}
+
+static void nvmet_configfs_clear_subsystem(struct configfs_subsystem *subsys,
+					   u64 ns_id)
+{
+	struct config_group *g, *n;
+
+	list_for_each_entry_safe(g, n, &subsys->su_group.default_groups,
+				 group_entry) {
+		list_del(&g->group_entry);
+		config_item_put(&g->cg_item);
+		kfree(g);
+	}
+	nvmet_del_disc_subsys(ns_id);
+}
+
 static struct configfs_subsystem nvmet_configfs_subsystem = {
 	.su_group = {
 		.cg_item = {
@@ -2366,29 +2497,13 @@ static struct configfs_subsystem nvmet_configfs_subsystem = {
 			.ci_type	= &nvmet_root_type,
 		},
 	},
+	.fill_subsystem = nvmet_configfs_fill_subsystem,
+	.clear_subsystem = nvmet_configfs_clear_subsystem,
 };
 
 int __init nvmet_init_configfs(void)
 {
 	int ret;
-
-	config_group_init(&nvmet_configfs_subsystem.su_group);
-	mutex_init(&nvmet_configfs_subsystem.su_mutex);
-
-	config_group_init_type_name(&nvmet_subsystems_group,
-			"subsystems", &nvmet_subsystems_type);
-	configfs_add_default_group(&nvmet_subsystems_group,
-			&nvmet_configfs_subsystem.su_group);
-
-	config_group_init_type_name(&nvmet_ports_group,
-			"ports", &nvmet_ports_type);
-	configfs_add_default_group(&nvmet_ports_group,
-			&nvmet_configfs_subsystem.su_group);
-
-	config_group_init_type_name(&nvmet_hosts_group,
-			"hosts", &nvmet_hosts_type);
-	configfs_add_default_group(&nvmet_hosts_group,
-			&nvmet_configfs_subsystem.su_group);
 
 	ret = configfs_register_subsystem(&nvmet_configfs_subsystem);
 	if (ret) {

@@ -1903,6 +1903,9 @@ int configfs_register_subsystem(struct configfs_subsystem *subsys)
 	}
 
 	if (subsys->fill_subsystem) {
+		INIT_LIST_HEAD(&subsys->su_link);
+		mutex_init(&subsys->su_mutex);
+		config_group_init(&subsys->su_group);
 		err = subsys->fill_subsystem(subsys, info->ns_id);
 		if (err)
 			goto out_release;
@@ -1951,6 +1954,7 @@ void configfs_link_subsystems(struct super_block *sb,
 		subsys->clear_subsystem = s->clear_subsystem;
 		INIT_LIST_HEAD(&subsys->su_link);
 		mutex_init(&subsys->su_mutex);
+		config_group_init(&subsys->su_group);
 		err = subsys->fill_subsystem(subsys, info->ns_id);
 		if (err) {
 			kfree(subsys);

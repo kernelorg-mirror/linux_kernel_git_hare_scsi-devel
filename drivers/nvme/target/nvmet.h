@@ -328,6 +328,9 @@ struct nvmet_subsys {
 	u16			cntlid_min;
 	u16			cntlid_max;
 
+	/* For discovery subsystems */
+	u64 genctr;
+
 	struct list_head	ctrls;
 
 	struct list_head	hosts;
@@ -632,7 +635,7 @@ ssize_t nvmet_ctrl_host_traddr(struct nvmet_ctrl *ctrl,
 		char *traddr, size_t traddr_len);
 
 struct nvmet_subsys *nvmet_subsys_alloc(const char *subsysnqn,
-		enum nvme_subsys_type type);
+		enum nvme_subsys_type type, u64 ns_id);
 void nvmet_subsys_put(struct nvmet_subsys *subsys);
 void nvmet_subsys_del_ctrls(struct nvmet_subsys *subsys);
 
@@ -668,7 +671,6 @@ u16 nvmet_zero_sgl(struct nvmet_req *req, off_t off, size_t len);
 u32 nvmet_get_log_page_len(struct nvme_command *cmd);
 u64 nvmet_get_log_page_offset(struct nvme_command *cmd);
 
-extern struct list_head *nvmet_ports;
 void nvmet_port_disc_changed(struct nvmet_port *port,
 		struct nvmet_subsys *subsys);
 void nvmet_subsys_disc_changed(struct nvmet_subsys *subsys,
@@ -702,11 +704,12 @@ void nvmet_add_async_event(struct nvmet_ctrl *ctrl, u8 event_type,
 
 int __init nvmet_init_configfs(void);
 void __exit nvmet_exit_configfs(void);
+extern struct list_head *nvmet_get_port_list(u64 ns_id);
 
-int __init nvmet_init_discovery(void);
-void nvmet_exit_discovery(void);
+extern int nvmet_add_disc_subsys(u64 ns_id);
+extern void nvmet_del_disc_subsys(u64 ns_id);
+extern struct nvmet_subsys *nvmet_get_disc_subsys(u64 ns_id);
 
-extern struct nvmet_subsys *nvmet_disc_subsys;
 extern struct rw_semaphore nvmet_config_sem;
 
 extern u32 nvmet_ana_group_enabled[NVMET_MAX_ANAGRPS + 1];
