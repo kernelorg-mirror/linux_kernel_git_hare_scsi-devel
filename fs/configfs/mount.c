@@ -66,6 +66,7 @@ static void configfs_fill_root(struct configfs_super_info *info)
 	INIT_LIST_HEAD(&info->subsys_list);
 	mutex_init(&info->subsys_mutex);
 	info->mnt_count = 0;
+	refcount_set(&info->ref, 1);
 }
 
 struct configfs_super_info *configfs_get_super_info(u64 ns_id)
@@ -88,6 +89,7 @@ struct configfs_super_info *configfs_get_super_info(u64 ns_id)
 	if (!info)
 		return ERR_PTR(-ENOMEM);
 
+	info->ns_id = ns_id;
 	configfs_fill_root(info);
 	err = idr_alloc(&configfs_super_idr, info,
 			ns_id, ns_id + 1, GFP_KERNEL);
@@ -96,8 +98,6 @@ struct configfs_super_info *configfs_get_super_info(u64 ns_id)
 		return ERR_PTR(err);
 	}
 	WARN_ON(err != ns_id);
-	info->ns_id = ns_id;
-	refcount_set(&info->ref, 1);
 	pr_info("%s: alloc ns %llu\n", __func__, info->ns_id);
 	return info;
 }

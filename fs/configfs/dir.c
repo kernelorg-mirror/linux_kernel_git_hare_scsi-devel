@@ -34,14 +34,6 @@
  */
 DEFINE_SPINLOCK(configfs_dirent_lock);
 
-/*
- * All of link_obj/unlink_obj/link_group/unlink_group require that
- * subsys->su_mutex is held.
- * But parent configfs_subsystem is NULL when config_item is root.
- * Use this mutex when config_item is root.
- */
-static DEFINE_MUTEX(configfs_subsystem_mutex);
-
 static void configfs_d_iput(struct dentry * dentry,
 			    struct inode * inode)
 {
@@ -1839,9 +1831,12 @@ void configfs_unregister_default_group(struct config_group *group)
 }
 EXPORT_SYMBOL(configfs_unregister_default_group);
 
-static int configfs_link_root(struct dentry *root, struct config_group *group)
+static int configfs_link_root(struct configfs_super_info *info,
+			      struct dentry *root,
+			      struct configfs_subsystem *subsys)
 {
 	int err;
+	struct config_group *group = &subsys->su_group;
 	struct dentry *dentry;
 	struct configfs_dirent *sd;
 	struct configfs_fragment *frag;
@@ -1854,9 +1849,9 @@ static int configfs_link_root(struct dentry *root, struct config_group *group)
 		group->cg_item.ci_name = group->cg_item.ci_namebuf;
 
 	sd = root->d_fsdata;
-	mutex_lock(&configfs_subsystem_mutex);
+	mutex_lock(&info->subsys_mutex);
 	link_group(to_config_group(sd->s_element), group);
-	mutex_unlock(&configfs_subsystem_mutex);
+	mutex_unlock(&info->subsys_mutex);
 
 	inode_lock_nested(d_inode(root), I_MUTEX_PARENT);
 
@@ -1884,9 +1879,9 @@ static int configfs_link_root(struct dentry *root, struct config_group *group)
 	inode_unlock(d_inode(root));
 
 	if (err) {
-		mutex_lock(&configfs_subsystem_mutex);
+		mutex_lock(&info->subsys_mutex);
 		unlink_group(group);
-		mutex_unlock(&configfs_subsystem_mutex);
+		mutex_unlock(&info->subsys_mutex);
 	}
 	put_fragment(frag);
 
@@ -1902,24 +1897,30 @@ int configfs_register_subsystem(struct configfs_subsystem *subsys)
 	if (WARN_ON(IS_ERR(info)))
 		return PTR_ERR(info);
 
-	if (subsys->fill_subsystem) {
-		err = subsys->fill_subsystem(subsys, info->ns_id);
-		if (err)
-			goto out_put;
-	}
 	root = configfs_pin_fs(NULL);
 	if (IS_ERR(root)) {
 		err = PTR_ERR(root);
 		goto out_put;
 	}
 
-	err = configfs_link_root(root, &subsys->su_group);
-	if (err)
+	if (subsys->fill_subsystem) {
+		err = subsys->fill_subsystem(subsys, info->ns_id);
+		if (err)
+			goto out_release;
+	}
+
+	err = configfs_link_root(info, root, subsys);
+	if (err) {
+		subsys->clear_subsystem(subsys, info->ns_id);
 		goto out_put;
+	}
 
 	mutex_lock(&info->subsys_mutex);
 	list_add(&subsys->su_link, &info->subsys_list);
 	mutex_unlock(&info->subsys_mutex);
+out_release:
+	if (err)
+		configfs_release_fs(NULL);
 out_put:
 	configfs_put_super_info(info);
 	return err;
@@ -1932,6 +1933,8 @@ void configfs_link_subsystems(struct super_block *sb,
 	struct configfs_super_info *root = configfs_get_super_info(0);
 
 	if (WARN_ON(IS_ERR(root)))
+		return;
+	if (WARN_ON(root == info))
 		return;
 	mutex_lock(&root->subsys_mutex);
 	list_for_each_entry(s, &root->subsys_list, su_link) {
@@ -1959,7 +1962,7 @@ void configfs_link_subsystems(struct super_block *sb,
 			kfree(subsys);
 			continue;
 		}
-		err = configfs_link_root(dentry, &subsys->su_group);
+		err = configfs_link_root(info, dentry, subsys);
 		if (err) {
 			configfs_release_fs(sb);
 			subsys->clear_subsystem(subsys, info->ns_id);
@@ -2023,11 +2026,10 @@ void configfs_unlink_subsystems(struct super_block *sb,
 	list_for_each_entry_safe(subsys, s, &info->subsys_list, su_link) {
 		list_del_init(&subsys->su_link);
 		configfs_unlink_root(&subsys->su_group, info);
-		configfs_release_fs(sb);
-		subsys->clear_subsystem(subsys, info->ns_id);
-		mutex_lock(&subsys->su_mutex);
+		if (subsys->clear_subsystem)
+			subsys->clear_subsystem(subsys, info->ns_id);
 		unlink_group(&subsys->su_group);
-		mutex_unlock(&subsys->su_mutex);
+		configfs_release_fs(sb);
 		kfree(subsys);
 	}
 	mutex_unlock(&info->subsys_mutex);
@@ -2040,13 +2042,13 @@ void configfs_unregister_subsystem(struct configfs_subsystem *subsys)
 
 	if (WARN_ON(IS_ERR(info)))
 		return;
-	if (subsys->clear_subsystem)
-		subsys->clear_subsystem(subsys, 0);
+	mutex_lock(&subsys->su_mutex);
+	list_del_init(&subsys->su_link);
 	configfs_unlink_root(group, info);
-
-	mutex_lock(&configfs_subsystem_mutex);
+	if (subsys->clear_subsystem)
+		subsys->clear_subsystem(subsys, info->ns_id);
 	unlink_group(group);
-	mutex_unlock(&configfs_subsystem_mutex);
+	mutex_unlock(&info->subsys_mutex);
 	configfs_release_fs(NULL);
 	configfs_put_super_info(info);
 }
