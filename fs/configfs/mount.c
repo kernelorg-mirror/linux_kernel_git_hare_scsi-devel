@@ -177,18 +177,48 @@ static struct file_system_type configfs_fs_type = {
 };
 MODULE_ALIAS_FS("configfs");
 
-struct dentry *configfs_pin_fs(void)
+struct dentry *configfs_pin_fs(struct super_block *sb)
 {
-	int err = simple_pin_fs(&configfs_fs_type, &configfs_root->mnt,
-			     &configfs_root->mnt_count);
-	return err ? ERR_PTR(err) : configfs_root->mnt->mnt_root;
+	struct configfs_super_info *info = configfs_root;
+	int err;
+
+	if (sb) {
+		struct configfs_super_info *root = info;
+		struct dentry *dentry = sb->s_root;
+		struct vfsmount *mnt;
+
+		info = sb->s_fs_info;
+		if (!info->mnt) {
+			mnt = mnt_clone_direct(root->mnt, dentry);
+			if (IS_ERR(mnt))
+				return ERR_CAST(mnt);
+			info->mnt = mnt;
+		}
+		dget(dentry);
+		mntget(info->mnt);
+		info->mnt_count++;
+		return info->mnt->mnt_root;
+	}
+
+	err = simple_pin_fs(&configfs_fs_type, &info->mnt, &info->mnt_count);
+	if (err)
+		return ERR_PTR(err);
+
+	return info->mnt->mnt_root;
 }
 
-void configfs_release_fs(void)
+void configfs_release_fs(struct super_block *sb)
 {
-	simple_release_fs(&configfs_root->mnt, &configfs_root->mnt_count);
-}
+	struct configfs_super_info *info = configfs_root;
 
+	if (sb) {
+		info = sb->s_fs_info;
+		dput(sb->s_root);
+	}
+
+	pr_debug("release ns %llu\n", info->ns_id);
+	simple_release_fs(&info->mnt, &info->mnt_count);
+}
 
 static int __init configfs_init(void)
 {
