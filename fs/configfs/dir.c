@@ -1937,8 +1937,11 @@ void configfs_link_subsystems(struct super_block *sb,
 
 	if (WARN_ON(IS_ERR(parent)))
 		return;
-	if (WARN_ON(parent == info))
+	if (info->ns_id == 0 ||
+	    WARN_ON(parent == info)) {
+		configfs_put_super_info(parent);
 		return;
+	}
 	mutex_lock(&parent->subsys_mutex);
 	list_for_each_entry(s, &parent->subsys_list, su_link) {
 		struct configfs_subsystem *subsys;
