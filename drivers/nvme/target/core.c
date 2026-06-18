@@ -1799,13 +1799,11 @@ static struct nvmet_subsys *nvmet_find_get_subsys(struct nvmet_port *port,
 {
 	struct nvmet_subsys_link *p;
 	struct nvmet_subsys *disc_subsys;
-	u64 ns_id;
 
 	if (!port)
 		return NULL;
 
-	ns_id = configfs_nsid_from_group(&port->group);
-	disc_subsys = nvmet_get_disc_subsys(ns_id);
+	disc_subsys = nvmet_get_disc_subsys(port->net_ns);
 
 	if (!strcmp(NVME_DISC_SUBSYS_NAME, subsysnqn)) {
 		if (!kref_get_unless_zero(&disc_subsys->ref))
@@ -1835,7 +1833,7 @@ static struct nvmet_subsys *nvmet_find_get_subsys(struct nvmet_port *port,
 }
 
 struct nvmet_subsys *nvmet_subsys_alloc(const char *subsysnqn,
-		enum nvme_subsys_type type, u64 ns_id)
+		enum nvme_subsys_type type, struct net *net_ns)
 {
 	struct nvmet_subsys *subsys;
 	char serial[NVMET_SN_MAX_SIZE / 2];
@@ -1893,7 +1891,7 @@ struct nvmet_subsys *nvmet_subsys_alloc(const char *subsysnqn,
 	INIT_LIST_HEAD(&subsys->ctrls);
 	INIT_LIST_HEAD(&subsys->hosts);
 
-	if (ns_id) {
+	if (net_ns) {
 		ret = nvmet_debugfs_subsys_setup(subsys);
 		if (ret)
 			goto free_subsysnqn;

@@ -1889,7 +1889,7 @@ static int configfs_link_root(struct configfs_super_info  *info,
 
 int configfs_register_subsystem(struct configfs_subsystem *subsys)
 {
-	struct configfs_super_info *info = configfs_get_super_info(0);
+	struct configfs_super_info *info = configfs_get_super_info(&init_net);
 	struct dentry *root;
 	int err;
 
@@ -1906,14 +1906,14 @@ int configfs_register_subsystem(struct configfs_subsystem *subsys)
 		INIT_LIST_HEAD(&subsys->su_link);
 		mutex_init(&subsys->su_mutex);
 		config_group_init(&subsys->su_group);
-		err = subsys->fill_subsystem(subsys, info->ns_id);
+		err = subsys->fill_subsystem(subsys, info->net_ns);
 		if (err)
 			goto out_release;
 	}
 
 	err = configfs_link_root(info, subsys, root);
 	if (err) {
-		subsys->clear_subsystem(subsys, info->ns_id);
+		subsys->clear_subsystem(subsys, info->net_ns);
 		goto out_put;
 	}
 
@@ -1933,11 +1933,11 @@ void configfs_link_subsystems(struct super_block *sb,
 			      struct configfs_super_info *info)
 {
 	struct configfs_subsystem *s;
-	struct configfs_super_info *parent = configfs_get_super_info(0);
+	struct configfs_super_info *parent = configfs_get_super_info(&init_net);
 
 	if (WARN_ON(IS_ERR(parent)))
 		return;
-	if (info->ns_id == 0 ||
+	if (info->net_ns == &init_net ||
 	    WARN_ON(parent == info)) {
 		configfs_put_super_info(parent);
 		return;
@@ -1958,21 +1958,21 @@ void configfs_link_subsystems(struct super_block *sb,
 		INIT_LIST_HEAD(&subsys->su_link);
 		mutex_init(&subsys->su_mutex);
 		config_group_init(&subsys->su_group);
-		err = subsys->fill_subsystem(subsys, info->ns_id);
+		err = subsys->fill_subsystem(subsys, info->net_ns);
 		if (err) {
 			kfree(subsys);
 			continue;
 		}
 		root = configfs_pin_fs(sb);
 		if (IS_ERR(root)) {
-			subsys->clear_subsystem(subsys, info->ns_id);
+			subsys->clear_subsystem(subsys, info->net_ns);
 			kfree(subsys);
 			continue;
 		}
 		err = configfs_link_root(info, subsys, root);
 		if (err) {
 			configfs_release_fs(sb);
-			subsys->clear_subsystem(subsys, info->ns_id);
+			subsys->clear_subsystem(subsys, info->net_ns);
 			kfree(subsys);
 			continue;
 		}
@@ -2035,7 +2035,7 @@ void configfs_unlink_subsystems(struct super_block *sb,
 		list_del_init(&subsys->su_link);
 		configfs_unlink_root(subsys);
 		if (subsys->clear_subsystem)
-			subsys->clear_subsystem(subsys, info->ns_id);
+			subsys->clear_subsystem(subsys, info->net_ns);
 		unlink_group(&subsys->su_group);
 		configfs_release_fs(sb);
 		kfree(subsys);
@@ -2045,7 +2045,7 @@ void configfs_unlink_subsystems(struct super_block *sb,
 
 void configfs_unregister_subsystem(struct configfs_subsystem *subsys)
 {
-	struct configfs_super_info *info = configfs_get_super_info(0);
+	struct configfs_super_info *info = configfs_get_super_info(&init_net);
 	struct config_group *group = &subsys->su_group;
 
 	if (WARN_ON(IS_ERR(info)))
@@ -2054,7 +2054,7 @@ void configfs_unregister_subsystem(struct configfs_subsystem *subsys)
 	list_del_init(&subsys->su_link);
 	configfs_unlink_root(subsys);
 	if (subsys->clear_subsystem)
-		subsys->clear_subsystem(subsys, info->ns_id);
+		subsys->clear_subsystem(subsys, info->net_ns);
 	unlink_group(group);
 	mutex_unlock(&info->subsys_mutex);
 	configfs_release_fs(NULL);

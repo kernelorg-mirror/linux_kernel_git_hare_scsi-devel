@@ -1481,6 +1481,8 @@ struct vfsmount *mnt_clone_direct(struct vfsmount *mnt, struct dentry *dentry)
 {
 	struct mount *p;
 
+	guard(namespace_shared)();
+
 	p = clone_mnt(real_mount(mnt), dentry, CL_SLAVE);
 	if (IS_ERR(p))
 		return ERR_CAST(p);

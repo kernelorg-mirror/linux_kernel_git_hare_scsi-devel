@@ -52,9 +52,20 @@ static const struct nvmet_type_name_map nvmet_addr_family[] = {
 	{ NVMF_ADDR_FAMILY_LOOP,	"loop" },
 };
 
-struct list_head *nvmet_get_port_list(u64 ns_id)
+u64 nvmet_get_ns_id(struct net *net_ns)
+{
+	struct ns_common *ns;
+
+	if (!net_ns)
+		return 0;
+	ns = to_ns_common(net_ns);
+	return net_ns == &init_net ? 0 : ns->ns_id;
+}
+
+struct list_head *nvmet_get_port_list(struct net *net_ns)
 {
 	struct list_head *port_list;
+	u64 ns_id = nvmet_get_ns_id(net_ns);
 
 	mutex_lock(&nvmet_ports_mutex);
 	port_list = idr_find(&nvmet_ports_idr, ns_id);
@@ -62,8 +73,9 @@ struct list_head *nvmet_get_port_list(u64 ns_id)
 	return port_list;
 }
 
-static int nvmet_add_port_list(u64 ns_id, struct nvmet_port *p)
+static int nvmet_add_port_list(struct nvmet_port *p)
 {
+	u64 ns_id = nvmet_get_ns_id(p->net_ns);
 	struct list_head *port_list;
 
 	mutex_lock(&nvmet_ports_mutex);
@@ -88,9 +100,10 @@ static int nvmet_add_port_list(u64 ns_id, struct nvmet_port *p)
 	return 0;
 }
 
-static void nvmet_del_port_list(u64 ns_id, struct nvmet_port *p)
+static void nvmet_del_port_list(struct nvmet_port *p)
 {
 	struct list_head *port_list;
+	u64 ns_id = nvmet_get_ns_id(p->net_ns);
 
 	mutex_lock(&nvmet_ports_mutex);
 	port_list = idr_find(&nvmet_ports_idr, ns_id);
@@ -1790,20 +1803,20 @@ static struct config_group *nvmet_subsys_make(struct config_group *group,
 		const char *name)
 {
 	struct nvmet_subsys *subsys, *disc_subsys;
-	u64 ns_id = configfs_nsid_from_group(group);
+	struct net *net_ns = configfs_ns_from_group(group);
 
 	if (sysfs_streq(name, NVME_DISC_SUBSYS_NAME)) {
 		pr_err("can't create discovery subsystem through configfs\n");
 		return ERR_PTR(-EINVAL);
 	}
 
-	disc_subsys = nvmet_get_disc_subsys(ns_id);
+	disc_subsys = nvmet_get_disc_subsys(net_ns);
 	if (sysfs_streq(name, disc_subsys->subsysnqn)) {
 		pr_err("can't create subsystem using unique discovery NQN\n");
 		return ERR_PTR(-EINVAL);
 	}
 
-	subsys = nvmet_subsys_alloc(name, NVME_NQN_NVME, ns_id);
+	subsys = nvmet_subsys_alloc(name, NVME_NQN_NVME, net_ns);
 	if (IS_ERR(subsys))
 		return ERR_CAST(subsys);
 
@@ -2058,11 +2071,10 @@ static const struct config_item_type nvmet_ana_groups_type = {
 static void nvmet_port_release(struct config_item *item)
 {
 	struct nvmet_port *port = to_nvmet_port(item);
-	u64 ns_id = configfs_nsid_from_group(&port->group);
 
 	/* Let inflight controllers teardown complete */
 	flush_workqueue(nvmet_wq);
-	nvmet_del_port_list(ns_id, port);
+	nvmet_del_port_list(port);
 
 	configfs_remove_default_groups(&port->group);
 	key_put(port->keyring);
@@ -2099,7 +2111,6 @@ static const struct config_item_type nvmet_port_type = {
 static struct config_group *nvmet_ports_make(struct config_group *group,
 		const char *name)
 {
-	u64 ns_id = configfs_nsid_from_group(group);
 	struct nvmet_port *port;
 	u16 portid;
 	u32 i;
@@ -2117,6 +2128,10 @@ static struct config_group *nvmet_ports_make(struct config_group *group,
 		return ERR_PTR(-ENOMEM);
 	}
 
+	port->net_ns = configfs_ns_from_group(group);
+	if (!port->net_ns)
+		port->net_ns = get_net(&init_net);
+
 	if (IS_ENABLED(CONFIG_NVME_TARGET_TCP_TLS) && nvme_keyring_id()) {
 		port->keyring = key_lookup(nvme_keyring_id());
 		if (IS_ERR(port->keyring)) {
@@ -2132,7 +2147,7 @@ static struct config_group *nvmet_ports_make(struct config_group *group,
 			port->ana_state[i] = NVME_ANA_INACCESSIBLE;
 	}
 
-	nvmet_add_port_list(ns_id, port);
+	nvmet_add_port_list(port);
 
 	INIT_LIST_HEAD(&port->entry);
 	INIT_LIST_HEAD(&port->subsystems);
@@ -2363,8 +2378,8 @@ static const struct config_item_type nvmet_hosts_type = {
 static ssize_t nvmet_root_discovery_nqn_show(struct config_item *item,
 					     char *page)
 {
-	u64 ns_id = configfs_nsid_from_group(to_config_group(item));
-	struct nvmet_subsys *disc_subsys = nvmet_get_disc_subsys(ns_id);
+	struct net *net_ns = configfs_ns_from_group(to_config_group(item));
+	struct nvmet_subsys *disc_subsys = nvmet_get_disc_subsys(net_ns);
 
 	return snprintf(page, PAGE_SIZE, "%s\n", disc_subsys->subsysnqn);
 }
@@ -2374,7 +2389,7 @@ static ssize_t nvmet_root_discovery_nqn_store(struct config_item *item,
 {
 	struct config_item *subsystems_item;
 	struct config_group *subsystems_group;
-	u64 ns_id = configfs_nsid_from_group(to_config_group(item));
+	struct net *net_ns = configfs_ns_from_group(to_config_group(item));
 	struct nvmet_subsys *disc_subsys;
 	struct list_head *entry;
 	char *old_nqn, *new_nqn;
@@ -2407,7 +2422,7 @@ static ssize_t nvmet_root_discovery_nqn_store(struct config_item *item,
 			return -EINVAL;
 		}
 	}
-	disc_subsys = nvmet_get_disc_subsys(ns_id);
+	disc_subsys = nvmet_get_disc_subsys(net_ns);
 	old_nqn = disc_subsys->subsysnqn;
 	disc_subsys->subsysnqn = new_nqn;
 	up_write(&nvmet_config_sem);
@@ -2429,18 +2444,18 @@ static const struct config_item_type nvmet_root_type = {
 };
 
 static int nvmet_configfs_fill_subsystem(struct configfs_subsystem *subsys,
-					 u64 ns_id)
+					 struct net *net_ns)
 {
 	struct config_group *subsystems_group, *ports_group, *hosts_group;
 	int err;
 
-	err = nvmet_add_disc_subsys(ns_id);
+	err = nvmet_add_disc_subsys(net_ns);
 	if (err < 0)
 		return err;
 
 	subsystems_group = kzalloc_obj(*subsystems_group);
 	if (!subsystems_group) {
-		nvmet_del_disc_subsys(ns_id);
+		nvmet_del_disc_subsys(net_ns);
 		return -ENOMEM;
 	}
 	config_group_init_type_name(subsystems_group,
@@ -2451,7 +2466,7 @@ static int nvmet_configfs_fill_subsystem(struct configfs_subsystem *subsys,
 	ports_group = kzalloc_obj(*ports_group);
 	if (!ports_group) {
 		kfree(subsystems_group);
-		nvmet_del_disc_subsys(ns_id);
+		nvmet_del_disc_subsys(net_ns);
 		return -ENOMEM;
 	}
 	config_group_init_type_name(ports_group,
@@ -2463,7 +2478,7 @@ static int nvmet_configfs_fill_subsystem(struct configfs_subsystem *subsys,
 	if (!hosts_group) {
 		kfree(ports_group);
 		kfree(subsystems_group);
-		nvmet_del_disc_subsys(ns_id);
+		nvmet_del_disc_subsys(net_ns);
 		return -ENOMEM;
 	}
 	config_group_init_type_name(hosts_group,
@@ -2477,7 +2492,7 @@ static int nvmet_configfs_fill_subsystem(struct configfs_subsystem *subsys,
 }
 
 static void nvmet_configfs_clear_subsystem(struct configfs_subsystem *subsys,
-					   u64 ns_id)
+					   struct net *net_ns)
 {
 	struct config_group *g, *n;
 
@@ -2487,7 +2502,7 @@ static void nvmet_configfs_clear_subsystem(struct configfs_subsystem *subsys,
 		config_item_put(&g->cg_item);
 		kfree(g);
 	}
-	nvmet_del_disc_subsys(ns_id);
+	nvmet_del_disc_subsys(net_ns);
 }
 
 static struct configfs_subsystem nvmet_configfs_subsystem = {

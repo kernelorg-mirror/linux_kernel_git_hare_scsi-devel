@@ -198,7 +198,22 @@ static inline struct nvmet_ana_group *to_ana_group(struct config_item *item)
  * @disc_addr:		Address information is stored in a format defined
  *				for a discovery log page entry.
  * @group:		ConfigFS group for this element's folder.
+ * @subsys_group:	Configfs group for this element's subsys folder.
+ * @subsystems:		List of subsystems this port is linked to.
+ * @referrals_group:	Congifs group for this elements's referrals folder.
+ * @referrals:		Entry for referrals list of this port.
+ * @global_entry:	Entry for global port list for this port.
+ * @ana_groups_group:	Configfs group for ANA groups
+ * @ana_default_group:	Configfs entry for the default ANA group.
+ * @ana_state:		Array of ANA states for this port..
+ * @keyring:		Keyring for this port.
  * @priv:		Private data for the transport.
+ * @enabled:		True if port is enabled.
+ * @inline_data_size:	inline data size transport parameter.
+ * @max_queue_size:	Maximum queue size for this port.
+ * @mdts:		MDTS value for this port.
+ * @tr_ops:		Pointer to the transport ops structure.
+ * @pi_enable:		True if protection information is enabled..
  */
 struct nvmet_port {
 	struct list_head		entry;
@@ -213,6 +228,7 @@ struct nvmet_port {
 	struct nvmet_ana_group		ana_default_group;
 	enum nvme_ana_state		*ana_state;
 	struct key			*keyring;
+	struct net			*net_ns;
 	void				*priv;
 	bool				enabled;
 	int				inline_data_size;
@@ -635,7 +651,7 @@ ssize_t nvmet_ctrl_host_traddr(struct nvmet_ctrl *ctrl,
 		char *traddr, size_t traddr_len);
 
 struct nvmet_subsys *nvmet_subsys_alloc(const char *subsysnqn,
-		enum nvme_subsys_type type, u64 ns_id);
+		enum nvme_subsys_type type, struct net *net_ns);
 void nvmet_subsys_put(struct nvmet_subsys *subsys);
 void nvmet_subsys_del_ctrls(struct nvmet_subsys *subsys);
 
@@ -704,11 +720,12 @@ void nvmet_add_async_event(struct nvmet_ctrl *ctrl, u8 event_type,
 
 int __init nvmet_init_configfs(void);
 void __exit nvmet_exit_configfs(void);
-extern struct list_head *nvmet_get_port_list(u64 ns_id);
+extern struct list_head *nvmet_get_port_list(struct net *net_ns);
 
-extern int nvmet_add_disc_subsys(u64 ns_id);
-extern void nvmet_del_disc_subsys(u64 ns_id);
-extern struct nvmet_subsys *nvmet_get_disc_subsys(u64 ns_id);
+extern u64 nvmet_get_ns_id(struct net *net_ns);
+extern int nvmet_add_disc_subsys(struct net *net_ns);
+extern void nvmet_del_disc_subsys(struct net *net_ns);
+extern struct nvmet_subsys *nvmet_get_disc_subsys(struct net *net_ns);
 
 extern struct rw_semaphore nvmet_config_sem;
 

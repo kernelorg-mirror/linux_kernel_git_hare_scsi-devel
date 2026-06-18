@@ -24,6 +24,7 @@
 #include <linux/list.h>   /* struct list_head */
 #include <linux/kref.h>   /* struct kref */
 #include <linux/mutex.h>  /* struct mutex */
+#include <net/net_namespace.h> /* struct net */
 
 #define CONFIGFS_ITEM_NAME_LEN	20
 
@@ -230,9 +231,9 @@ struct configfs_subsystem {
 	struct config_group	su_group;
 	struct mutex		su_mutex;
 	int (*fill_subsystem)(struct configfs_subsystem *subsys,
-			      u64 ns_id);
+			      struct net *net_ns);
 	void (*clear_subsystem)(struct configfs_subsystem *subsys,
-				u64 ns_id);
+				struct net *net_ns);
 };
 
 static inline struct configfs_subsystem *to_configfs_subsystem(struct config_group *group)
@@ -257,7 +258,7 @@ configfs_register_default_group(struct config_group *parent_group,
 				const struct config_item_type *item_type);
 void configfs_unregister_default_group(struct config_group *group);
 
-u64 configfs_nsid_from_group(struct config_group *group);
+struct net *configfs_ns_from_group(struct config_group *group);
 
 /* These functions can sleep and can alloc with GFP_KERNEL */
 /* WARNING: These cannot be called underneath configfs callbacks!! */

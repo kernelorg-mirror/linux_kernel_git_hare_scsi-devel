@@ -16,7 +16,7 @@
 #include <linux/init.h>
 #include <linux/slab.h>
 
-#include <linux/mnt_namespace.h>
+#include <net/net_namespace.h>
 #include <linux/configfs.h>
 #include "configfs_internal.h"
 
@@ -27,9 +27,11 @@ struct kmem_cache *configfs_dir_cachep;
 static DEFINE_XARRAY(configfs_super_xa);
 static struct configfs_super_info *configfs_root = NULL;
 
-static u64 configfs_ns_id(struct ns_common *ns)
+static u64 configfs_ns_id(struct net *net_ns)
 {
-	if (!ns || is_ns_init_id(ns))
+	struct ns_common *ns = net_ns ? to_ns_common(net_ns) : NULL;
+
+	if (!ns || net_ns == &init_net)
 		return 0;
 	return ns->ns_id;
 }
@@ -69,9 +71,10 @@ static void configfs_fill_super_info(struct configfs_super_info *info)
 	info->mnt_count = 0;
 }
 
-struct configfs_super_info *configfs_get_super_info(u64 ns_id)
+struct configfs_super_info *configfs_get_super_info(struct net *net_ns)
 {
 	struct configfs_super_info *info;
+	u64 ns_id = configfs_ns_id(net_ns);
 	int err;
 
 	info = xa_load(&configfs_super_xa, ns_id);
@@ -89,24 +92,27 @@ struct configfs_super_info *configfs_get_super_info(u64 ns_id)
 	if (!info)
 		return ERR_PTR(-ENOMEM);
 
-	info->ns_id = ns_id;
+	info->net_ns = get_net(net_ns);
 	configfs_fill_super_info(info);
 	err = xa_insert(&configfs_super_xa, ns_id,
 			info, GFP_KERNEL);
 	if (err < 0) {
+		put_net(info->net_ns);
 		kfree(info);
 		return ERR_PTR(err);
 	}
-	pr_info("%s: alloc ns %llu\n", __func__, info->ns_id);
+	pr_info("%s: alloc ns %llu\n", __func__, ns_id);
 	return info;
 }
 
 void configfs_put_super_info(struct configfs_super_info *info)
 {
+	u64 ns_id = configfs_ns_id(info->net_ns);
+
+	put_net(info->net_ns);
 	if (refcount_dec_and_test(&info->ref)) {
-		pr_info("%s: ns %llu free fs info\n",
-			__func__, info->ns_id);
-		xa_erase(&configfs_super_xa, info->ns_id);
+		pr_info("%s: ns %llu free fs info\n", __func__, ns_id);
+		xa_erase(&configfs_super_xa, ns_id);
 		WARN_ON(!list_empty(&info->subsys_list));
 		kfree(info);
 	}
@@ -115,10 +121,10 @@ void configfs_put_super_info(struct configfs_super_info *info)
 static int configfs_fill_super(struct super_block *sb, struct fs_context *fc)
 {
 	struct configfs_super_info *info = sb->s_fs_info;
-	struct ns_common *ns = fc->fs_private;
+	struct net *net_ns = fc->fs_private;
 	struct inode *inode;
 	struct dentry *root;
-	u64 ns_id = configfs_ns_id(ns);
+	u64 ns_id = configfs_ns_id(net_ns);
 
 	pr_info("%s: ns %llu\n", __func__, ns_id);
 
@@ -152,7 +158,7 @@ static int configfs_fill_super(struct super_block *sb, struct fs_context *fc)
 	set_default_d_op(sb, &configfs_dentry_ops); /* the rest get that */
 	sb->s_d_flags |= DCACHE_DONTCACHE;
 
-	pr_info("%s: ns %llu\n", __func__, info->ns_id);
+	pr_info("%s: ns %llu\n", __func__, ns_id);
 	configfs_link_subsystems(sb, info);
 
 	return 0;
@@ -160,11 +166,11 @@ static int configfs_fill_super(struct super_block *sb, struct fs_context *fc)
 
 static int configfs_get_tree(struct fs_context *fc)
 {
-	struct ns_common *ns = fc->fs_private;
+	struct net *net_ns = fc->fs_private;
 	struct configfs_super_info *info;
 	int err;
 
-	info = configfs_get_super_info(configfs_ns_id(ns));
+	info = configfs_get_super_info(net_ns);
 	if (IS_ERR(info))
 		return PTR_ERR(info);
 
@@ -176,13 +182,12 @@ static int configfs_get_tree(struct fs_context *fc)
 
 static void configfs_fs_context_free(struct fs_context *fc)
 {
-	struct ns_common *ns = fc->fs_private;
-	u64 ns_id = configfs_ns_id(ns);
+	struct net *net_ns = fc->fs_private;
+	u64 ns_id = configfs_ns_id(net_ns);
 
 	fc->fs_private = NULL;
 	pr_info("%s: ns %llu\n", __func__, ns_id);
-	if (__ns_ref_put(ns))
-		pr_debug("%s: drop ns\n", __func__);
+	put_net(net_ns);
 }
 
 static const struct fs_context_operations configfs_context_ops = {
@@ -192,12 +197,9 @@ static const struct fs_context_operations configfs_context_ops = {
 
 static int configfs_init_fs_context(struct fs_context *fc)
 {
-	struct ns_common *ns = from_mnt_ns(current->nsproxy->mnt_ns);
+	struct net *net_ns = get_net_ns_by_pid(current->pid);
 
-	if (!__ns_ref_get(ns))
-		return -EAGAIN;
-
-	fc->fs_private = ns;
+	fc->fs_private = net_ns;
 	fc->ops = &configfs_context_ops;
 	return 0;
 }
@@ -205,8 +207,9 @@ static int configfs_init_fs_context(struct fs_context *fc)
 static void configfs_kill_sb(struct super_block *sb)
 {
 	struct configfs_super_info *info = sb->s_fs_info;
+	u64 ns_id = configfs_ns_id(info->net_ns);
 
-	pr_info("%s: ns %llu\n", __func__, info->ns_id);
+	pr_info("%s: ns %llu\n", __func__, ns_id);
 	configfs_unlink_subsystems(sb, info);
 	kill_anon_super(sb);
 	configfs_put_super_info(info);
@@ -255,31 +258,32 @@ struct dentry *configfs_pin_fs(struct super_block *sb)
 void configfs_release_fs(struct super_block *sb)
 {
 	struct configfs_super_info *info = configfs_root;
+	u64 ns_id = configfs_ns_id(info->net_ns);
 
 	if (sb) {
 		info = sb->s_fs_info;
 		dput(sb->s_root);
 	}
 
-	pr_debug("release ns %llu\n", info->ns_id);
+	pr_debug("release ns %llu\n", ns_id);
 	simple_release_fs(&info->mnt, &info->mnt_count);
 }
 
-u64 configfs_nsid_from_group(struct config_group *group)
+struct net *configfs_ns_from_group(struct config_group *group)
 {
 	struct configfs_super_info *info = configfs_root;
-	u64 ns_id = 0;
+	struct net *net_ns = NULL;
 
 	if (group) {
 		struct dentry *dentry = group->cg_item.ci_dentry;
 
 		info = dentry->d_sb->s_fs_info;
 		if (info)
-			ns_id = info->ns_id;
+			net_ns = get_net(info->net_ns);
 	}
-	return ns_id;
+	return net_ns;
 }
-EXPORT_SYMBOL_GPL(configfs_nsid_from_group);
+EXPORT_SYMBOL_GPL(configfs_ns_from_group);
 
 static int __init configfs_init(void)
 {
@@ -299,7 +303,7 @@ static int __init configfs_init(void)
 	if (err)
 		goto out3;
 
-	configfs_root = configfs_get_super_info(0);
+	configfs_root = configfs_get_super_info(&init_net);
 	if (IS_ERR(configfs_root)) {
 		err = PTR_ERR(configfs_root);
 		goto out4;
